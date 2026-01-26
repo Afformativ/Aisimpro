@@ -110,7 +110,7 @@ export default function BatchDetail() {
     <div className="page">
       <div className="page-header">
         <div className="header-with-back">
-          <Link to="/batches" className="back-link">
+          <Link to="/" className="back-link">
             <ArrowLeft size={20} />
           </Link>
           <div>

@@ -265,7 +265,7 @@ function seedTestData() {
     return;
   }
 
-  console.log('Seeding test data...');
+  console.log(' Seeding test data...');
 
   // Create Parties
   const parties = [
@@ -273,7 +273,7 @@ function seedTestData() {
       legalName: 'Golden Peak Mining Corp',
       partyType: 'MineOperator',
       country: 'Peru',
-      registrationId: 'PE-MIN-2024-001',
+      registrationId: 'PE-MIN-2026-001',
       contactName: 'Carlos Mendoza',
       contactEmail: 'carlos@goldenpeak.pe'
     },
@@ -281,7 +281,7 @@ function seedTestData() {
       legalName: 'SecureGold Logistics Ltd',
       partyType: 'Transporter',
       country: 'Switzerland',
-      registrationId: 'CH-LOG-2024-042',
+      registrationId: 'CH-LOG-2026-042',
       contactName: 'Hans Mueller',
       contactEmail: 'hans@securegold.ch'
     },
@@ -289,7 +289,7 @@ function seedTestData() {
       legalName: 'Swiss Precious Metals AG',
       partyType: 'Buyer',
       country: 'Switzerland',
-      registrationId: 'CH-BUY-2024-099',
+      registrationId: 'CH-BUY-2026-099',
       contactName: 'Anna Schmidt',
       contactEmail: 'anna@swissmetals.ch'
     },
@@ -297,7 +297,7 @@ function seedTestData() {
       legalName: 'Valcambi Refinery SA',
       partyType: 'Refinery',
       country: 'Switzerland',
-      registrationId: 'CH-REF-2024-007',
+      registrationId: 'CH-REF-2026-007',
       contactName: 'Marco Rossi',
       contactEmail: 'marco@valcambi.ch'
     },
@@ -305,7 +305,7 @@ function seedTestData() {
       legalName: 'Bureau Veritas Auditing',
       partyType: 'Auditor',
       country: 'France',
-      registrationId: 'FR-AUD-2024-123',
+      registrationId: 'FR-AUD-2026-123',
       contactName: 'Marie Dupont',
       contactEmail: 'marie@bvauditing.fr'
     },
@@ -313,7 +313,7 @@ function seedTestData() {
       legalName: 'Andean Gold Miners Co-op',
       partyType: 'MineOperator',
       country: 'Colombia',
-      registrationId: 'CO-MIN-2024-015',
+      registrationId: 'CO-MIN-2026-015',
       contactName: 'Miguel Santos',
       contactEmail: 'miguel@andeangold.co'
     }
@@ -323,7 +323,7 @@ function seedTestData() {
   parties.forEach(p => {
     const party = provenanceService.registerParty(p);
     createdParties[p.partyType + '_' + p.country] = party;
-    console.log(`  ✓ Party: ${party.legalName}`);
+    console.log(`  Party: ${party.legalName}`);
   });
 
   // Create Facilities
@@ -386,10 +386,10 @@ function seedTestData() {
 
   facilities.forEach(f => {
     const facility = provenanceService.registerFacility(f);
-    console.log(`  ✓ Facility: ${facility.facilityName}`);
+    console.log(`  Facility: ${facility.facilityName}`);
   });
 
-  console.log(' Test data seeded successfully!');
+  console.log('Test data seeded successfully!');
 }
 
 // ============ START SERVER ============
@@ -402,9 +402,9 @@ export async function startServer() {
     console.log('🔗 Connecting to blockchain...');
     const result = await anchoringService.connect(process.env.PRIVATE_KEY);
     if (result.success) {
-      console.log(`✓ Connected with wallet: ${result.address}`);
+      console.log(`Connected with wallet: ${result.address}`);
     } else {
-      console.log(`⚠ Blockchain connection failed: ${result.error}`);
+      console.log(`Blockchain connection failed: ${result.error}`);
     }
   }
 
@@ -412,8 +412,8 @@ export async function startServer() {
   seedTestData();
   
   app.listen(PORT, () => {
-    console.log(`  API running on http://localhost:${PORT}`);
-    console.log(` Mode: ${anchoringService.isSimulated() ? 'SIMULATION' : 'LIVE BLOCKCHAIN'}`);
+    console.log(`Gold Provenance API running on http://localhost:${PORT}`);
+    console.log(`Mode: ${anchoringService.isSimulated() ? 'SIMULATION' : 'LIVE BLOCKCHAIN'}`);
   });
 }
 

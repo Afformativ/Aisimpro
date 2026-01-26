@@ -24,7 +24,7 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename={import.meta.env.VITE_BASE_PATH || '/'}>
+      <BrowserRouter>
         <Layout>
           <Routes>
             <Route path="/" element={<Dashboard />} />

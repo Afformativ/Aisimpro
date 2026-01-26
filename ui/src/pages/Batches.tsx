@@ -91,7 +91,7 @@ export default function Batches() {
             <div className="form-grid">
               <div className="form-group">
                 <label htmlFor="referenceNumber">Reference Number *</label>
-                <input type="text" id="referenceNumber" name="referenceNumber" required placeholder="e.g., BATCH-2024-001" />
+                <input type="text" id="referenceNumber" name="referenceNumber" required placeholder="e.g., BATCH-2026-001" />
               </div>
               <div className="form-group">
                 <label htmlFor="commodity">Commodity *</label>

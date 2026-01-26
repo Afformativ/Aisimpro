@@ -65,8 +65,8 @@ async function deploy() {
     await contract.waitForDeployment();
     const contractAddress = await contract.getAddress();
     
-    console.log('\n✅ Contract deployed successfully!');
-    console.log(`📋 Contract Address: ${contractAddress}`);
+    console.log('\nContract deployed successfully!');
+    console.log(`Contract Address: ${contractAddress}`);
     console.log(`🔗 Explorer: ${AMOY_CONFIG.explorerUrl}/address/${contractAddress}`);
     
     // Test the contract

@@ -27,11 +27,11 @@ function printStep(num, title) {
 }
 
 function printSuccess(message) {
-  console.log(chalk.green('  ✓ ') + message);
+  console.log(chalk.green('  ') + message);
 }
 
 function printInfo(message) {
-  console.log(chalk.cyan('  ℹ ') + message);
+  console.log(chalk.cyan('  ') + message);
 }
 
 function sleep(ms) {
@@ -74,7 +74,7 @@ async function runDemo() {
     legalName: 'Golden Peak Mining Corp',
     partyType: PartyType.MINE_OPERATOR,
     country: 'Peru',
-    registrationId: 'PE-MIN-2024-001'
+    registrationId: 'PE-MIN-2026-001'
   });
   printSuccess(`Mine Operator: ${mineOperator.legalName} (${mineOperator.partyId.substring(0, 8)}...)`);
 
@@ -83,7 +83,7 @@ async function runDemo() {
     legalName: 'SecureGold Logistics Ltd',
     partyType: PartyType.TRANSPORTER,
     country: 'Switzerland',
-    registrationId: 'CH-LOG-2024-042'
+    registrationId: 'CH-LOG-2026-042'
   });
   printSuccess(`Transporter: ${transporter.legalName} (${transporter.partyId.substring(0, 8)}...)`);
 
@@ -92,7 +92,7 @@ async function runDemo() {
     legalName: 'Swiss Precious Metals AG',
     partyType: PartyType.BUYER,
     country: 'Switzerland',
-    registrationId: 'CH-BUY-2024-099'
+    registrationId: 'CH-BUY-2026-099'
   });
   printSuccess(`Buyer: ${buyer.legalName} (${buyer.partyId.substring(0, 8)}...)`);
 
@@ -149,25 +149,25 @@ async function runDemo() {
 
   // Simulate document content and compute hashes
   const permitContent = JSON.stringify({
-    permitNumber: 'PE-MIN-PERMIT-2024-00789',
+    permitNumber: 'PE-MIN-PERMIT-2026-00789',
     issuer: 'Peru Ministry of Mining',
-    validFrom: '2024-01-01',
+    validFrom: '2026-01-01',
     validTo: '2029-12-31',
     holder: 'Golden Peak Mining Corp'
   });
   
   const permitDoc = provenanceService.registerDocument({
     documentType: DocumentType.PERMIT,
-    fileName: 'mining_permit_2024.pdf',
+    fileName: 'mining_permit_2026.pdf',
     sha256Hash: hashDocument(permitContent),
     issuerPartyId: mineOperator.partyId,
-    storageUri: 's3://goldprov-docs/permits/PE-MIN-2024-00789.pdf',
-    issuedDate: '2024-01-01'
+    storageUri: 's3://goldprov-docs/permits/PE-MIN-2026-00789.pdf',
+    issuedDate: '2026-01-01'
   });
   printSuccess(`Permit: ${permitDoc.fileName} (${permitDoc.sha256Hash.substring(0, 16)}...)`);
 
   const originCertContent = JSON.stringify({
-    certNumber: 'COO-2024-GPM-001',
+    certNumber: 'COO-2026-GPM-001',
     commodity: 'Gold Doré',
     origin: 'Golden Peak Mine, Arequipa, Peru',
     certifiedBy: 'Peru Chamber of Commerce'
@@ -178,12 +178,12 @@ async function runDemo() {
     fileName: 'certificate_of_origin.pdf',
     sha256Hash: hashDocument(originCertContent),
     issuerPartyId: mineOperator.partyId,
-    storageUri: 's3://goldprov-docs/certs/COO-2024-GPM-001.pdf'
+    storageUri: 's3://goldprov-docs/certs/COO-2026-GPM-001.pdf'
   });
   printSuccess(`Certificate of Origin: ${originCertDoc.fileName}`);
 
   const packingListContent = JSON.stringify({
-    shipmentId: 'SHP-2024-001',
+    shipmentId: 'SHP-2026-001',
     items: [{ description: 'Gold Doré Bars', quantity: 25, unitWeight: '1kg', totalWeight: '25kg' }],
     grossWeight: '27kg',
     packaging: 'Sealed security containers x 5'
@@ -191,15 +191,15 @@ async function runDemo() {
 
   const packingListDoc = provenanceService.registerDocument({
     documentType: DocumentType.PACKING_LIST,
-    fileName: 'packing_list_SHP2024001.pdf',
+    fileName: 'packing_list_SHP2026001.pdf',
     sha256Hash: hashDocument(packingListContent),
     issuerPartyId: mineOperator.partyId,
-    storageUri: 's3://goldprov-docs/shipping/packing_SHP2024001.pdf'
+    storageUri: 's3://goldprov-docs/shipping/packing_SHP2026001.pdf'
   });
   printSuccess(`Packing List: ${packingListDoc.fileName}`);
 
   const waybillContent = JSON.stringify({
-    waybillNumber: 'AWB-2024-LIM-ZRH-00123',
+    waybillNumber: 'AWB-2026-LIM-ZRH-00123',
     origin: 'Lima, Peru',
     destination: 'Zurich, Switzerland',
     carrier: 'SecureGold Logistics',
@@ -208,10 +208,10 @@ async function runDemo() {
 
   const waybillDoc = provenanceService.registerDocument({
     documentType: DocumentType.WAYBILL,
-    fileName: 'airway_bill_AWB2024123.pdf',
+    fileName: 'airway_bill_AWB2026123.pdf',
     sha256Hash: hashDocument(waybillContent),
     issuerPartyId: transporter.partyId,
-    storageUri: 's3://goldprov-docs/shipping/awb_2024123.pdf'
+    storageUri: 's3://goldprov-docs/shipping/awb_2026123.pdf'
   });
   printSuccess(`Waybill: ${waybillDoc.fileName}`);
 
@@ -222,7 +222,7 @@ async function runDemo() {
   printStep(4, 'Create Batch at Mine (Anchor on Blockchain)');
 
   const batchResult = await provenanceService.createBatchAtMine({
-    externalReferenceNumber: 'GPM-2024-BATCH-001',
+    externalReferenceNumber: 'GPM-2026-BATCH-001',
     commodityType: 'Gold Doré',
     originFacilityId: mineFacility.facilityId,
     ownerPartyId: mineOperator.partyId,
@@ -230,7 +230,7 @@ async function runDemo() {
     weightUnit: 'kg',
     declaredAssayValue: 92.5,
     declaredAssayUnit: '%',
-    notes: 'First batch of Q1 2024 production'
+    notes: 'First batch of Q1 2026 production'
   }, [permitDoc.documentId, originCertDoc.documentId, packingListDoc.documentId]);
 
   printSuccess(`Batch created: ${batchResult.batch.externalReferenceNumber}`);
@@ -340,8 +340,8 @@ async function runDemo() {
       new Date(event.timestamp).toLocaleString(),
       fromName,
       toName,
-      verifyEvent?.hashMatch ? chalk.green('✓') : chalk.red('✗'),
-      event.txHash ? chalk.green('✓') : chalk.yellow('○')
+      verifyEvent?.hashMatch ? chalk.green('OK') : chalk.red('FAIL'),
+      event.txHash ? chalk.green('OK') : chalk.yellow('PENDING')
     ]);
   });
   console.log(table.toString());
@@ -354,7 +354,7 @@ async function runDemo() {
 
   console.log(chalk.bold('\n  Verification Summary:'));
   const allValid = verification.overallValid;
-  const statusIcon = allValid ? chalk.green('✓ VERIFIED') : chalk.red('✗ FAILED');
+  const statusIcon = allValid ? chalk.green('VERIFIED') : chalk.red('FAILED');
   console.log(`    Overall Status: ${statusIcon}`);
   console.log(`    Events Checked: ${verification.events.length}`);
   console.log(`    Hash Matches:   ${verification.events.filter(e => e.hashMatch).length}/${verification.events.length}`);
@@ -362,8 +362,8 @@ async function runDemo() {
 
   if (anchoringService.isSimulated()) {
     const networkInfo = anchoringService.getNetworkInfo();
-    console.log(chalk.yellow(`\n    ⚠ Running in SIMULATION mode on ${networkInfo.name}`));
-    console.log(chalk.yellow(`    ⚠ To anchor on live zkEVM, set PRIVATE_KEY environment variable`));
+    console.log(chalk.yellow(`\n    WARNING: Running in SIMULATION mode on ${networkInfo.name}`));
+    console.log(chalk.yellow(`    WARNING: To anchor on live zkEVM, set PRIVATE_KEY environment variable`));
   }
 
   // ============ EXPORT ============
@@ -379,26 +379,26 @@ async function runDemo() {
   printHeader('DEMO COMPLETE');
   
   console.log(chalk.green(`
-  ✓ Created 4 supply chain parties
-  ✓ Registered 4 facilities  
-  ✓ Uploaded 4 documents (hashed off-chain)
-  ✓ Created 1 batch at origin mine
-  ✓ Recorded ${chain.timeline.length} traceability events
-  ✓ Anchored all events on blockchain (simulated)
-  ✓ Verified complete chain of custody
-  ✓ Exported batch package as JSON
-  
+  - Created 4 supply chain parties
+  - Registered 4 facilities
+  - Uploaded 4 documents (hashed off-chain)
+  - Created 1 batch at origin mine
+  - Recorded ${chain.timeline.length} traceability events
+  - Anchored all events on blockchain (simulated)
+  - Verified complete chain of custody
+  - Exported batch package as JSON
+
   The prototype demonstrates the core provenance flow:
-  
-  Mine → Ship → Transfer → Receive → Verify
-  
+
+  Mine -> Ship -> Transfer -> Receive -> Verify
+
   Each step creates a tamper-evident record with:
-  • Unique event ID
-  • Timestamp
-  • Party/facility references
-  • Document hashes
-  • Blockchain anchor (tx hash)
-  `));
+  - Unique event ID
+  - Timestamp
+  - Party/facility references
+  - Document hashes
+  - Blockchain anchor (tx hash)
+`));
 
   console.log(chalk.cyan('  To run the API server: npm run api'));
   console.log(chalk.cyan('  To use the CLI: node src/cli.js --help\n'));

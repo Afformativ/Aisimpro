@@ -1,238 +1,98 @@
-# Gold Provenance & Chain-of-Custody Prototype
 
-A minimal viable prototype for tracking mined gold from origin to downstream buyers with **Polygon Amoy** blockchain-anchored tamper-evident records.
+# Gold Provenance & Chain‑of‑Custody Prototype
+
+
+A small prototype for tracking mined gold through custody events and providing tamper‑evident proof via cryptographic hashing and on‑chain anchors.
 
 ## Live Demo
 
-- **Frontend:** [https://your-username.github.io/gold-provenance](https://your-username.github.io/gold-provenance)
-- **API:** [https://gold-provenance-api.onrender.com](https://gold-provenance-api.onrender.com)
+- **Frontend:** https://afformativ.github.io/Aisimpro 
 
-## Overview
+## What this application does
 
-This prototype implements a traceability system that can:
+- Records batches (lots) of material created at origin.
+- Stores events that describe custody, shipment, receipt, inspection, assay, and disputes.
+- Computes cryptographic hashes for batches, events and documents to provide an immutable fingerprint.
+- Anchors selected hashes to an EVM chain (Polygon networks) as a public, tamper‑evident timestamp.
+- Provides a UI for creating, browsing and verifying provenance, plus an API and CLI for automation.
 
-1. **Create batch records** at the mine origin
-2. **Record custody/transfer events** through the supply chain
-3. **Verify provenance** with tamper-evident hash anchors on Polygon Amoy
-4. **Export data** for auditing and integration
+## UI Pages (what you'll find in the frontend)
 
-All batches are **shared and visible to everyone** - create a batch and others can see it!
+- **Dashboard** — Overview of recent activity and summary metrics.
+- **Batches** — List of tracked batches; create and search batches.
+- **Batch Detail** — Full chain‑of‑custody for a single batch, event timeline, documents and verification status.
+- **Documents** — Register and view off‑chain supporting documents and their hashes.
+- **Facilities** — Manage and view physical locations (mines, warehouses, ports).
+- **Parties** — Manage participants (mine operator, transporter, buyer, auditor).
+- **Audit** — Tools and views for auditors to verify timelines and hashes.
+- **Network** — Configure which blockchain network to use for anchoring and view anchor status.
+- **Verify** — Paste or upload a batch/package and run integrity checks against stored and on‑chain anchors.
 
-```
-Physical Flow:
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│   Mine   │ →  │  Ship/   │ →  │  Buyer   │ →  │  Verify  │
-│  Create  │    │ Transfer │    │ Receive  │    │  Chain   │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘
+These pages are implemented under ui/src/pages/ in the repository.
 
-Digital Flow (per step):
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│  Enter   │ →  │  Hash &  │ →  │  Anchor  │ →  │  Save TX │
-│  Data    │    │  Store   │    │  on L2   │    │  Hash    │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘
-```
+## Important concepts (glossary)
 
-## Quick Start (Local Development)
+- Batch hash
+
+	The batch hash is a cryptographic fingerprint (SHA‑256) computed over the canonical JSON representation of the batch record and its core metadata (e.g., reference, weight, origin, linked document hashes). The batch hash uniquely identifies the batch contents — if any field or document changes, the hash changes. Use the batch hash to verify that a downloaded or exported batch matches the stored record.
+
+- Event hash
+
+	Each custody or traceability action (create, ship, transfer, receive, inspect, assay, dispute) is recorded as an event. An event hash is computed from the event's canonical JSON (type, timestamp, actor, related party/facility IDs, and references to the affected batch/document hashes). Event hashes provide an immutable fingerprint for each step in the chain‑of‑custody and can be independently verified.
+
+- Blockchain anchors
+
+	Anchoring means publishing a compact reference (usually a hash) to a public blockchain transaction or logged event. This project uses an EventLogger smart contract to emit an on‑chain event containing the anchored hash (no raw data is stored on chain). Anchors provide a public timestamp and tamper‑evidence: because the anchor is included in a blockchain transaction, it becomes hard to repudiate or alter the fact that a particular hash existed at a given time. Anchors link off‑chain data (batch/event hashes) to an auditable on‑chain record.
+
+## Where hashing and anchoring happen in the code
+
+- Hashing and canonicalization are implemented in `src/services/hashing.js`.
+- Anchoring and blockchain interactions are implemented in `src/services/anchoring.js` and by the `contracts/EventLogger.sol` smart contract.
+- The provenance business logic that ties hashes, events and anchors together is in `src/services/provenance.js`.
+
+## Quick start (local development)
 
 ```bash
 # Install dependencies
 npm install
 cd ui && npm install && cd ..
 
-# Start the API server
+# Start the API server (default: simulation/testnet mode)
 npm run api
 
 # In another terminal, start the UI
 cd ui && npm run dev
 ```
 
-### Connect to Polygon Amoy (Live Mode)
+## Example verification flow
 
-```bash
-# Set your private key in .env
-PRIVATE_KEY=0x...
-CONTRACT_ADDRESS=0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19
-POLYGON_RPC=https://rpc-amoy.polygon.technology
+1. Create a batch in the UI or via `POST /api/batches`.
+2. Add events (ship, transfer, receive) to build the timeline.
+3. The API computes and stores batch and event hashes (SHA‑256).
+4. Optionally call the anchoring endpoint to publish a hash to the configured blockchain; the contract emits an event containing the anchor.
+5. Use the `Verify` page or `GET /api/batches/:id/verify` to compare local hashes with stored values and (if anchored) confirm the on‑chain anchor exists.
 
-# Start the API - it will auto-connect to blockchain
-npm run api
-```
+## API & CLI highlights
 
-**Testnet Faucet:** Get test MATIC on Amoy at https://faucet.polygon.technology/
+The repository exposes a REST API (`src/api.js`) and a CLI (`src/cli.js`). Important endpoints include:
 
-## Deployment
+- `POST /api/batches` — create a batch
+- `GET /api/batches/:id/chain-of-custody` — get full timeline and hashes
+- `POST /api/batches/:id/ship` / `transfer` / `receive` — record events
+- `POST /api/documents` — register document and compute its hash
 
-### Deploy Backend to Render.com
+CLI: helpful scripts for demo, batch creation and verification are available via `node src/cli.js` (see `README` sections and `src/cli.js` for commands).
 
-1. Fork this repository
-2. Go to [render.com](https://render.com) and create a new Web Service
-3. Connect your GitHub repository
-4. Render will automatically use the `render.yaml` configuration
-5. Set the `PRIVATE_KEY` environment variable in Render dashboard
+## Where to look next in the code
 
-### Deploy Frontend to GitHub Pages
+- API server: `src/api.js`
+- Hashing: `src/services/hashing.js`
+- Anchoring: `src/services/anchoring.js`
+- Smart contract: `contracts/EventLogger.sol`
+- Frontend pages: `ui/src/pages/`
 
-1. Enable GitHub Pages in repository settings
-2. Set source to "GitHub Actions"
-3. Add repository variable `API_URL` pointing to your Render backend
-4. Push to `main` branch - GitHub Actions will deploy automatically
+## Notes and limitations
 
-## Architecture
-
-### Data Models
-
-- **Party** - Supply chain participants (mine, transporter, buyer, auditor)
-- **Facility** - Physical locations (mine site, warehouse, vault)
-- **Batch/Lot** - Unit of tracked material with unique reference
-- **Event** - Traceability events (create, ship, transfer, receive)
-- **Document** - Off-chain documents with on-chain hash references
-- **Credential** - Attestations and claims (future VC support)
-
-### Services
-
-- **PersistentDatabase** - File-based JSON storage (shared across all users)
-- **Hashing** - SHA-256 with RFC 8785 canonical JSON
-- **Anchoring** - EVM blockchain anchoring on Polygon Amoy
-- **Provenance** - Core business logic for the traceability flow
-
-### Smart Contract
-
-The `EventLogger.sol` contract is deployed on **Polygon Amoy**:
-- **Address:** `0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19`
-- Stateless design (no on-chain storage)
-- Event emission for immutable timestamps
-- Indexed fields for efficient querying
-- ~90% gas savings vs storage-based approaches
-- zkEVM compatibility for enhanced security and lower costs
-
-### Supported Networks
-
-| Network | Chain ID | Use Case |
-|---------|----------|----------|
-| Polygon zkEVM Mainnet | 1101 | Production |
-| Polygon zkEVM Cardona | 2442 | Testing (default) |
-| Polygon Amoy | 80002 | Legacy testing |
-
-## API Endpoints
-
-### Parties
-- `POST /api/parties` - Register a party
-- `GET /api/parties` - List all parties
-- `GET /api/parties/:id` - Get party details
-
-### Facilities
-- `POST /api/facilities` - Register a facility
-- `GET /api/facilities` - List all facilities
-
-### Documents
-- `POST /api/documents` - Register a document
-- `POST /api/documents/:id/verify` - Verify document hash
-
-### Batches
-- `POST /api/batches` - Create batch at mine
-- `GET /api/batches` - List all batches
-- `GET /api/batches/:id` - Get batch details
-- `GET /api/batches/:id/chain-of-custody` - Full provenance view
-- `GET /api/batches/:id/verify` - Verify all hashes
-- `GET /api/batches/:id/export` - Export as JSON
-
-### Events
-- `POST /api/batches/:id/ship` - Record shipment
-- `POST /api/batches/:id/transfer` - Record custody transfer
-- `POST /api/batches/:id/receive` - Record receipt
-- `POST /api/batches/:id/inspect` - Record inspection
-- `POST /api/batches/:id/assay` - Record assay finalization
-- `POST /api/batches/:id/dispute` - Flag dispute
-
-## CLI Commands
-
-```bash
-# Network management (Polygon zkEVM)
-node src/cli.js network:info           # Show current network
-node src/cli.js network:list           # List available networks
-node src/cli.js network:switch zkevm-mainnet  # Switch to mainnet
-node src/cli.js network:connect        # Connect wallet (requires PRIVATE_KEY)
-
-# Party management
-node src/cli.js party:create -n "Company Name" -t MineOperator -c Peru
-node src/cli.js party:list
-
-# Facility management
-node src/cli.js facility:create -n "Mine Site" -t Mine -o <partyId> -c Peru
-node src/cli.js facility:list
-
-# Batch creation
-node src/cli.js batch:create -r "REF-001" -c "Gold Doré" -f <facilityId> -o <partyId> -w 25.5
-node src/cli.js batch:list
-
-# Events
-node src/cli.js ship <batchId> -t <toPartyId> -f <toFacilityId>
-node src/cli.js receive <batchId> -r <receiverPartyId> -f <facilityId>
-
-# Verification
-node src/cli.js verify <batchId>
-
-# Export
-node src/cli.js export <batchId>
-```
-
-## Demo Flow
-
-Run `npm run demo` to see:
-
-1. **Registration** - Create parties and facilities
-2. **Documents** - Register and hash supporting documents
-3. **Batch Creation** - Create a batch at the mine with provenance docs
-4. **Shipment** - Record shipment with waybill
-5. **Transfer** - Hand off custody to buyer
-6. **Receipt** - Buyer acknowledges receipt
-7. **Verification** - Full chain of custody verification
-8. **Export** - JSON export of complete batch package
-
-## Pilot Assumptions
-
-- Single mine, single commodity (gold doré/concentrate)
-- No batch splitting/merging (treated as atomic unit)
-- Documents stored off-chain (hashes on-chain)
-- Simulation mode for blockchain (testnet ready)
-- Application-level permissioning (roles/allowlists)
-
-## Future-Proofing
-
-- UNTP-aligned event/credential patterns
-- Verifiable Credential placeholder for attestations
-- Hybrid architecture (permissioned ledger compatible)
-- Extensible data model for splitting/aggregation
-
-## Project Structure
-
-```
-gold-provenance/
-├── contracts/
-│   └── EventLogger.sol      # Solidity smart contract
-├── src/
-│   ├── models/
-│   │   └── index.js         # Data models and enums
-│   ├── services/
-│   │   ├── database.js      # In-memory database
-│   │   ├── hashing.js       # Cryptographic hashing
-│   │   ├── anchoring.js     # Blockchain anchoring
-│   │   └── provenance.js    # Core business logic
-│   ├── api.js               # REST API server
-│   ├── cli.js               # Command-line interface
-│   ├── demo.js              # Interactive demonstration
-│   └── index.js             # Entry point
-└── package.json
-```
-
-## Success Criteria
-
-✅ Create a batch with provenance documents  
-✅ Log at least two custody events  
-✅ Verify timeline and document integrity  
-✅ Complete flow in under 2 minutes  
-✅ Export batch package as JSON  
-
-## License
-
-MIT
+- Documents and full payloads are kept off‑chain; only hashes are anchored on‑chain.
+- This prototype assumes batches are treated as atomic units (no split/merge flows).
+- Anchoring produces a public transaction (testnet/mainnet costs apply).

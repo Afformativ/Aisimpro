@@ -99,7 +99,7 @@ export default function Verify() {
             {verification.overallValid ? (
               <>
                 <CheckCircle size={64} />
-                <h2>Batch Verified ✓</h2>
+                <h2>Batch Verified</h2>
                 <p>All integrity checks passed</p>
               </>
             ) : (
@@ -214,7 +214,7 @@ export default function Verify() {
       )}
 
       <div className="info-box">
-        <h4>🔒 Verification Process</h4>
+        <h4> Verification Process</h4>
         <ul>
           <li><strong>Hash Chain:</strong> Verifies each event's SHA-256 hash matches its data</li>
           <li><strong>Blockchain Anchors:</strong> Confirms hashes are anchored to Polygon Amoy Testnet</li>

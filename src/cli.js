@@ -23,31 +23,34 @@ function printHeader(title) {
 }
 
 function printSuccess(message) {
-  console.log(chalk.green('✓ ') + message);
+  console.log(chalk.green(message));
 }
 
 function printInfo(message) {
-  console.log(chalk.cyan('ℹ ') + message);
+  console.log(chalk.cyan(message));
 }
 
 function printWarning(message) {
-  console.log(chalk.yellow('⚠ ') + message);
+  console.log(chalk.yellow(message));
 }
 
 function printError(message) {
-  console.log(chalk.red('✗ ') + message);
+  console.log(chalk.red(message));
 }
 
 function printJSON(obj) {
-  console.log(chalk.gray(JSON.stringify(obj, null, 2)));
+  console.log(chalk.cyan(JSON.stringify(obj, null, 2)));
 }
 
 function formatTimestamp(ts) {
-  return new Date(ts).toLocaleString();
+  try {
+    console.log(chalk.yellow(new Date(ts).toLocaleString()));
+  } catch (e) {
+    console.log(chalk.yellow(String(ts)));
+  }
 }
 
 // ============ PARTY COMMANDS ============
-
 program
   .command('party:create')
   .description('Register a new party')

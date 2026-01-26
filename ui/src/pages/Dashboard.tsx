@@ -185,7 +185,7 @@ export default function Dashboard() {
       {/* Getting Started */}
       {parties.length === 0 && (
         <div className="card getting-started">
-          <h3>🚀 Getting Started</h3>
+          <h3>Getting Started</h3>
           <div className="steps">
             <div className="step">
               <div className="step-number">1</div>

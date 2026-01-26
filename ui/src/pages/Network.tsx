@@ -69,7 +69,7 @@ export default function NetworkPage() {
               <h4>API Connected</h4>
               <div className="status-details">
                 <span className={`mode-badge ${health.simulationMode ? 'simulation' : 'live'}`}>
-                  {health.simulationMode ? '🔄 Simulation Mode' : '⛓️ Live Blockchain'}
+                  {health.simulationMode ? ' Simulation Mode' : ' Live Blockchain'}
                 </span>
                 <span className="timestamp">Last check: {new Date(health.timestamp).toLocaleTimeString()}</span>
               </div>
@@ -81,7 +81,7 @@ export default function NetworkPage() {
       {/* Mode Info */}
       <div className="card info-card">
         <h3>
-          {health?.simulationMode ? '🔄 Simulation Mode' : '⛓️ Live Blockchain Mode'}
+          {health?.simulationMode ? ' Simulation Mode' : ' Live Blockchain Mode'}
         </h3>
         {health?.simulationMode ? (
           <div className="mode-info">
