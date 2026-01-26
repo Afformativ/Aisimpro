@@ -1,0 +1,25 @@
+# Render.com deployment configuration
+# Deploy to: https://render.com
+
+services:
+  - type: web
+    name: gold-provenance-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/api.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+      - key: PRIVATE_KEY
+        sync: false  # Set this manually in Render dashboard
+      - key: CONTRACT_ADDRESS
+        value: "0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19"
+      - key: POLYGON_RPC
+        value: "https://rpc-amoy.polygon.technology"
+    disk:
+      name: gold-provenance-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
