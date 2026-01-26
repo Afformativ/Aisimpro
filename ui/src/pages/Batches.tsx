@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Package, Scale, MapPin, Truck, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
 import * as api from '../services/api';
 import type { Batch, Party, Facility } from '../types';

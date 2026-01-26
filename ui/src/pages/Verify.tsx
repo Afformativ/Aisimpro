@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Shield, CheckCircle, XCircle, AlertTriangle, Hash, ExternalLink, Search } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, ExternalLink, Search } from 'lucide-react';
 import * as api from '../services/api';
-import type { Batch, VerificationResult } from '../types';
+import type { Batch } from '../types';
 
 export default function Verify() {
   const [searchParams] = useSearchParams();
@@ -16,7 +16,7 @@ export default function Verify() {
     queryFn: api.getBatches,
   });
 
-  const { data: verification, isLoading, error, refetch } = useQuery({
+  const { data: verification, isLoading, error } = useQuery({
     queryKey: ['verify', searchId],
     queryFn: () => api.verifyBatch(searchId),
     enabled: !!searchId,

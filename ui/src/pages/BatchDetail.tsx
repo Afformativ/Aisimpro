@@ -84,7 +84,7 @@ export default function BatchDetail() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `batch-${chainOfCustody?.batch.referenceNumber || batchId}.json`;
+    a.download = `batch-${chainOfCustody?.batch.batchId || batchId}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -104,7 +104,7 @@ export default function BatchDetail() {
   if (error) return <div className="error">Error: {(error as Error).message}</div>;
   if (!chainOfCustody) return <div className="error">Batch not found</div>;
 
-  const { batch, originFacility, timeline, verificationStatus, documentCount } = chainOfCustody;
+  const { batch, originFacility, timeline, verificationStatus } = chainOfCustody;
 
   return (
     <div className="page">

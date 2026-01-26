@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, FileText, Lock, Eye, Hash } from 'lucide-react';
 import * as api from '../services/api';
 import type { Document } from '../types';

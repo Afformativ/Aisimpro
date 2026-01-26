@@ -12,7 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import * as api from '../services/api';
-import type { Batch, Party, Facility } from '../types';
+import type { Batch } from '../types';
 
 export default function Dashboard() {
   const { data: parties = [] } = useQuery({

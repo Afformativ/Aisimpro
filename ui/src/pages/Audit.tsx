@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Clock, User, FileText, Database, Filter } from 'lucide-react';
+import { Clock, FileText, Database, Filter } from 'lucide-react';
 import * as api from '../services/api';
 import type { AuditLogEntry } from '../types';
 import { useState } from 'react';
