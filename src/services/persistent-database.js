@@ -211,6 +211,11 @@ class PersistentDatabase {
       .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   }
 
+  // Compatibility: in-memory DB uses `getEventsByBatch` name
+  getEventsByBatch(batchId) {
+    return this.getEventsForBatch(batchId);
+  }
+
   getAllEvents() {
     return Array.from(this.events.values());
   }
@@ -231,6 +236,11 @@ class PersistentDatabase {
   getDocumentsByBatch(batchId) {
     return Array.from(this.documents.values())
       .filter(d => d.relatedBatchId === batchId);
+  }
+
+  // Compatibility: in-memory DB uses `getCredentialsByBatch(batchId)`
+  getCredentialsByBatch(batchId) {
+    return Array.from(this.credentials.values()).filter(c => c.subjectBatchId === batchId);
   }
 
   getAllDocuments() {
