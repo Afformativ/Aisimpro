@@ -49,6 +49,32 @@ These pages are implemented under ui/src/pages/ in the repository.
 - Hashing and canonicalization are implemented in `src/services/hashing.js`.
 - Anchoring and blockchain interactions are implemented in `src/services/anchoring.js` and by the `contracts/EventLogger.sol` smart contract.
 - The provenance business logic that ties hashes, events and anchors together is in `src/services/provenance.js`.
+- Database implementations: `src/services/mongodb-database.js` (MongoDB), `src/services/persistent-database.js` (file-based), `src/services/database.js` (in-memory).
+
+## Database Options
+
+The application supports three database backends:
+
+- **File-based** (default) - JSON files stored in `./data` directory, persists across restarts
+- **MongoDB** - Full database with cloud support via MongoDB Atlas - see [MONGODB_SETUP.md](MONGODB_SETUP.md)
+- **In-memory** - For testing only, data lost on restart
+
+To use MongoDB for persistent cloud storage:
+```bash
+# Install mongoose
+npm install
+
+# Configure environment
+DB_TYPE=mongodb
+MONGODB_URI=mongodb://localhost:27017/gold-provenance
+# Or use MongoDB Atlas:
+# MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/gold-provenance
+
+# Start API
+npm run api
+```
+
+See [MONGODB_SETUP.md](MONGODB_SETUP.md) for detailed setup instructions.
 
 ## Quick start (local development)
 
@@ -57,7 +83,7 @@ These pages are implemented under ui/src/pages/ in the repository.
 npm install
 cd ui && npm install && cd ..
 
-# Start the API server (default: simulation/testnet mode)
+# Start the API server (default: simulation/testnet mode with file-based DB)
 npm run api
 
 # In another terminal, start the UI

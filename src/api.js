@@ -331,7 +331,7 @@ function seedTestData() {
     {
       facilityName: 'Cerro Rico Mine Site',
       facilityType: 'Mine',
-      operatorPartyId: createdParties['MineOperator_Peru'].partyId,
+      ownerPartyId: createdParties['MineOperator_Peru'].partyId,
       country: 'Peru',
       region: 'Puno',
       gpsLat: -15.8402,
@@ -340,7 +340,7 @@ function seedTestData() {
     {
       facilityName: 'Lima Secure Warehouse',
       facilityType: 'Warehouse',
-      operatorPartyId: createdParties['Transporter_Switzerland'].partyId,
+      ownerPartyId: createdParties['Transporter_Switzerland'].partyId,
       country: 'Peru',
       region: 'Lima',
       gpsLat: -12.0464,
@@ -349,7 +349,7 @@ function seedTestData() {
     {
       facilityName: 'Callao Export Port',
       facilityType: 'Port',
-      operatorPartyId: createdParties['Transporter_Switzerland'].partyId,
+      ownerPartyId: createdParties['Transporter_Switzerland'].partyId,
       country: 'Peru',
       region: 'Callao',
       gpsLat: -12.0432,
@@ -358,7 +358,7 @@ function seedTestData() {
     {
       facilityName: 'Zurich Airport Cargo',
       facilityType: 'Warehouse',
-      operatorPartyId: createdParties['Transporter_Switzerland'].partyId,
+      ownerPartyId: createdParties['Transporter_Switzerland'].partyId,
       country: 'Switzerland',
       region: 'Zurich',
       gpsLat: 47.4647,
@@ -367,7 +367,7 @@ function seedTestData() {
     {
       facilityName: 'Valcambi Processing Plant',
       facilityType: 'Refinery',
-      operatorPartyId: createdParties['Refinery_Switzerland'].partyId,
+      ownerPartyId: createdParties['Refinery_Switzerland'].partyId,
       country: 'Switzerland',
       region: 'Ticino',
       gpsLat: 45.8706,
@@ -376,7 +376,7 @@ function seedTestData() {
     {
       facilityName: 'Antioquia Mine Complex',
       facilityType: 'Mine',
-      operatorPartyId: createdParties['MineOperator_Colombia'].partyId,
+      ownerPartyId: createdParties['MineOperator_Colombia'].partyId,
       country: 'Colombia',
       region: 'Antioquia',
       gpsLat: 6.2442,
@@ -397,9 +397,25 @@ function seedTestData() {
 const PORT = process.env.PORT || 3000;
 
 export async function startServer() {
+  // Connect to MongoDB if using MongoDB
+  if (process.env.DB_TYPE === 'mongodb') {
+    console.log('Connecting to MongoDB...');
+    const mongoDb = (await import('./services/mongodb-database.js')).default;
+    const result = await mongoDb.connect(process.env.MONGODB_URI);
+    if (result.success) {
+      console.log('MongoDB connected successfully');
+      const stats = await mongoDb.getStats();
+      console.log('Database stats:', stats);
+    } else {
+      console.error('MongoDB connection failed:', result.error);
+      console.log('Falling back to file-based database');
+      process.env.DB_TYPE = 'file';
+    }
+  }
+
   // Auto-connect to blockchain if private key is available
   if (process.env.PRIVATE_KEY) {
-    console.log('🔗 Connecting to blockchain...');
+    console.log('Connecting to blockchain...');
     const result = await anchoringService.connect(process.env.PRIVATE_KEY);
     if (result.success) {
       console.log(`Connected with wallet: ${result.address}`);
@@ -414,6 +430,7 @@ export async function startServer() {
   app.listen(PORT, () => {
     console.log(`Gold Provenance API running on http://localhost:${PORT}`);
     console.log(`Mode: ${anchoringService.isSimulated() ? 'SIMULATION' : 'LIVE BLOCKCHAIN'}`);
+    console.log(`Database: ${process.env.DB_TYPE || 'file'}`);
   });
 }
 

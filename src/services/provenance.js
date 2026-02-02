@@ -4,12 +4,8 @@
  * Implements the flow: Create Batch → Record Events → Anchor Hashes → Verify
  */
 
-// Use persistent database for production (shared data)
-// Fall back to in-memory for local dev if needed
-const usePersistent = process.env.USE_PERSISTENT_DB !== 'false';
-const db = usePersistent 
-  ? (await import('./persistent-database.js')).default
-  : (await import('./database.js')).default;
+// Use database selector to choose implementation
+const db = (await import('./db-selector.js')).default;
 
 import { computeEventHash, computeBatchHash, hashDocument, verifyDocumentHash } from './hashing.js';
 import anchoringService from './anchoring.js';

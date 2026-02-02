@@ -11,6 +11,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DB_TYPE
+        value: file  # Change to 'mongodb' if using MongoDB Atlas
+      # - key: MONGODB_URI
+      #   sync: false  # Set this manually in Render dashboard if using MongoDB
       - key: DATA_DIR
         value: /opt/render/project/src/data
       - key: PRIVATE_KEY
@@ -23,3 +27,4 @@ services:
       name: gold-provenance-data
       mountPath: /opt/render/project/src/data
       sizeGB: 1
+
