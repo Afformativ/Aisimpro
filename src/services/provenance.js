@@ -390,25 +390,27 @@ class ProvenanceService {
   /**
    * Get complete chain of custody for a batch (FR 3.1.6)
    */
-  getChainOfCustody(batchId) {
-    const batch = db.getBatch(batchId);
+  async getChainOfCustody(batchId) {
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       return null;
     }
 
-    const events = db.getEventsByBatch(batchId);
-    const documents = db.getDocumentsByBatch(batchId);
-    const credentials = db.getCredentialsByBatch(batchId);
-    const originFacility = db.getFacility(batch.originFacilityId);
-    const currentOwner = db.getParty(batch.ownerPartyId);
+    const events = await db.getEventsByBatch(batchId);
+    const documents = await db.getDocumentsByBatch(batchId);
+    const credentials = await db.getCredentialsByBatch(batchId);
+    const originFacility = await db.getFacility(batch.originFacilityId);
+    const currentOwner = await db.getParty(batch.ownerPartyId);
 
     // Build timeline with enriched data
-    const timeline = events.map(event => {
-      const fromParty = event.fromPartyId ? db.getParty(event.fromPartyId) : null;
-      const toParty = event.toPartyId ? db.getParty(event.toPartyId) : null;
-      const fromFacility = event.fromFacilityId ? db.getFacility(event.fromFacilityId) : null;
-      const toFacility = event.toFacilityId ? db.getFacility(event.toFacilityId) : null;
-      const eventDocs = event.references.map(docId => db.getDocument(docId)).filter(Boolean);
+    const timeline = await Promise.all(events.map(async (event) => {
+      const fromParty = event.fromPartyId ? await db.getParty(event.fromPartyId) : null;
+      const toParty = event.toPartyId ? await db.getParty(event.toPartyId) : null;
+      const fromFacility = event.fromFacilityId ? await db.getFacility(event.fromFacilityId) : null;
+      const toFacility = event.toFacilityId ? await db.getFacility(event.toFacilityId) : null;
+      const eventDocs = await Promise.all(
+        event.references.map(docId => db.getDocument(docId))
+      ).then(docs => docs.filter(Boolean));
 
       return {
         eventId: event.eventId,
@@ -435,7 +437,7 @@ class ProvenanceService {
         explorerUrl: event.onChainTxHash ? 
           anchoringService.getExplorerUrl(event.onChainTxHash) : null
       };
-    });
+    }));
 
     return {
       batch: {
@@ -481,12 +483,12 @@ class ProvenanceService {
    * Verify integrity of all hashes for a batch
    */
   async verifyBatchIntegrity(batchId) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       return { valid: false, error: 'Batch not found' };
     }
 
-    const events = db.getEventsByBatch(batchId);
+    const events = await db.getEventsByBatch(batchId);
     const verificationResults = {
       batchId,
       overallValid: true,

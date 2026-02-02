@@ -44,13 +44,13 @@ app.post('/api/parties', (req, res) => {
   }
 });
 
-app.get('/api/parties', (req, res) => {
-  const parties = provenanceService.getAllParties();
+app.get('/api/parties', async (req, res) => {
+  const parties = await provenanceService.getAllParties();
   res.json(parties);
 });
 
-app.get('/api/parties/:partyId', (req, res) => {
-  const party = provenanceService.getParty(req.params.partyId);
+app.get('/api/parties/:partyId', async (req, res) => {
+  const party = await provenanceService.getParty(req.params.partyId);
   if (!party) {
     return res.status(404).json({ error: 'Party not found' });
   }
@@ -68,13 +68,13 @@ app.post('/api/facilities', (req, res) => {
   }
 });
 
-app.get('/api/facilities', (req, res) => {
-  const facilities = provenanceService.getAllFacilities();
+app.get('/api/facilities', async (req, res) => {
+  const facilities = await provenanceService.getAllFacilities();
   res.json(facilities);
 });
 
-app.get('/api/facilities/:facilityId', (req, res) => {
-  const facility = provenanceService.getFacility(req.params.facilityId);
+app.get('/api/facilities/:facilityId', async (req, res) => {
+  const facility = await provenanceService.getFacility(req.params.facilityId);
   if (!facility) {
     return res.status(404).json({ error: 'Facility not found' });
   }
@@ -121,13 +121,13 @@ app.post('/api/batches', async (req, res) => {
   }
 });
 
-app.get('/api/batches', (req, res) => {
-  const batches = provenanceService.getAllBatches();
+app.get('/api/batches', async (req, res) => {
+  const batches = await provenanceService.getAllBatches();
   res.json(batches);
 });
 
-app.get('/api/batches/:batchId', (req, res) => {
-  const batch = provenanceService.getBatch(req.params.batchId);
+app.get('/api/batches/:batchId', async (req, res) => {
+  const batch = await provenanceService.getBatch(req.params.batchId);
   if (!batch) {
     return res.status(404).json({ error: 'Batch not found' });
   }
@@ -200,8 +200,8 @@ app.post('/api/batches/:batchId/dispute', async (req, res) => {
 
 // ============ VERIFICATION ============
 
-app.get('/api/batches/:batchId/chain-of-custody', (req, res) => {
-  const chain = provenanceService.getChainOfCustody(req.params.batchId);
+app.get('/api/batches/:batchId/chain-of-custody', async (req, res) => {
+  const chain = await provenanceService.getChainOfCustody(req.params.batchId);
   if (!chain) {
     return res.status(404).json({ error: 'Batch not found' });
   }
@@ -219,8 +219,8 @@ app.get('/api/batches/:batchId/verify', async (req, res) => {
 
 // ============ EXPORT ============
 
-app.get('/api/batches/:batchId/export', (req, res) => {
-  const pkg = provenanceService.exportBatchPackage(req.params.batchId);
+app.get('/api/batches/:batchId/export', async (req, res) => {
+  const pkg = await provenanceService.exportBatchPackage(req.params.batchId);
   if (!pkg) {
     return res.status(404).json({ error: 'Batch not found' });
   }
@@ -229,9 +229,9 @@ app.get('/api/batches/:batchId/export', (req, res) => {
 
 // ============ AUDIT LOG ============
 
-app.get('/api/audit', (req, res) => {
+app.get('/api/audit', async (req, res) => {
   const entityId = req.query.entityId || null;
-  const log = provenanceService.getAuditLog(entityId);
+  const log = await provenanceService.getAuditLog(entityId);
   res.json(log);
 });
 
@@ -258,9 +258,10 @@ app.get('/api/enums', (req, res) => {
 
 // ============ SEED DATA ============
 
-function seedTestData() {
+async function seedTestData() {
   // Check if data already exists
-  if (provenanceService.getAllParties().length > 0) {
+  const existingParties = await provenanceService.getAllParties();
+  if (existingParties.length > 0) {
     console.log(' Database already has data, skipping seed');
     return;
   }
@@ -320,11 +321,11 @@ function seedTestData() {
   ];
 
   const createdParties = {};
-  parties.forEach(p => {
-    const party = provenanceService.registerParty(p);
+  for (const p of parties) {
+    const party = await provenanceService.registerParty(p);
     createdParties[p.partyType + '_' + p.country] = party;
     console.log(`  Party: ${party.legalName}`);
-  });
+  }
 
   // Create Facilities
   const facilities = [
@@ -384,10 +385,10 @@ function seedTestData() {
     }
   ];
 
-  facilities.forEach(f => {
-    const facility = provenanceService.registerFacility(f);
+  for (const f of facilities) {
+    const facility = await provenanceService.registerFacility(f);
     console.log(`  Facility: ${facility.facilityName}`);
-  });
+  }
 
   console.log('Test data seeded successfully!');
 }
@@ -425,7 +426,7 @@ export async function startServer() {
   }
 
   // Seed test data
-  seedTestData();
+  await seedTestData();
   
   app.listen(PORT, () => {
     console.log(`Gold Provenance API running on http://localhost:${PORT}`);

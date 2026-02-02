@@ -27,9 +27,14 @@ export default function Batches() {
 
   const createMutation = useMutation({
     mutationFn: api.createBatch,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setShowForm(false);
+      // Navigate to the newly created batch
+      if (data.batch?.batchId) {
+        navigate(`/batches/${data.batch.batchId}`);
+      }
     },
   });
 

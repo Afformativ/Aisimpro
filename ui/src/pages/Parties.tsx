@@ -18,6 +18,7 @@ export default function Parties() {
     mutationFn: api.createParty,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['parties'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setShowForm(false);
     },
   });

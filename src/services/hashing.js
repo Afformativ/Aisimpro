@@ -66,17 +66,20 @@ export function hashDocument(content) {
  */
 export function computeEventHash(event) {
   // Create a deterministic payload for hashing
+  // Normalize Date objects to ISO strings for consistency
   const payload = {
     eventId: event.eventId,
     eventType: event.eventType,
-    eventTimestamp: event.eventTimestamp,
+    eventTimestamp: event.eventTimestamp instanceof Date 
+      ? event.eventTimestamp.toISOString() 
+      : event.eventTimestamp,
     batchId: event.batchId,
-    fromPartyId: event.fromPartyId,
-    toPartyId: event.toPartyId,
-    fromFacilityId: event.fromFacilityId,
-    toFacilityId: event.toFacilityId,
-    quantity: event.quantity,
-    references: event.references
+    fromPartyId: event.fromPartyId || null,
+    toPartyId: event.toPartyId || null,
+    fromFacilityId: event.fromFacilityId || null,
+    toFacilityId: event.toFacilityId || null,
+    quantity: event.quantity || null,
+    references: event.references || []
   };
   
   return sha256(payload);
@@ -86,15 +89,18 @@ export function computeEventHash(event) {
  * Compute hash of a batch for blockchain anchoring
  */
 export function computeBatchHash(batch) {
+  // Normalize Date objects to ISO strings for consistency
   const payload = {
     batchId: batch.batchId,
     externalReferenceNumber: batch.externalReferenceNumber,
     commodityType: batch.commodityType,
     originFacilityId: batch.originFacilityId,
     ownerPartyId: batch.ownerPartyId,
-    creationTimestamp: batch.creationTimestamp,
+    creationTimestamp: batch.creationTimestamp instanceof Date
+      ? batch.creationTimestamp.toISOString()
+      : batch.creationTimestamp,
     quantity: batch.quantity,
-    declaredAssay: batch.declaredAssay
+    declaredAssay: batch.declaredAssay || null
   };
   
   return sha256(payload);

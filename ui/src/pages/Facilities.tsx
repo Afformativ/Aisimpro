@@ -23,6 +23,7 @@ export default function Facilities() {
     mutationFn: api.createFacility,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['facilities'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setShowForm(false);
     },
   });
