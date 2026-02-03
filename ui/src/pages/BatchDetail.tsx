@@ -47,7 +47,12 @@ export default function BatchDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chainOfCustody', batchId] });
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setActiveAction(null);
+    },
+    onError: (error) => {
+      console.error('Ship mutation error:', error);
+      alert(`Error shipping batch: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 
@@ -56,7 +61,12 @@ export default function BatchDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chainOfCustody', batchId] });
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setActiveAction(null);
+    },
+    onError: (error) => {
+      console.error('Transfer mutation error:', error);
+      alert(`Error transferring batch: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 
@@ -65,7 +75,12 @@ export default function BatchDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chainOfCustody', batchId] });
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setActiveAction(null);
+    },
+    onError: (error) => {
+      console.error('Receive mutation error:', error);
+      alert(`Error receiving batch: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 
@@ -74,7 +89,12 @@ export default function BatchDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['chainOfCustody', batchId] });
       queryClient.invalidateQueries({ queryKey: ['batches'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setActiveAction(null);
+    },
+    onError: (error) => {
+      console.error('Dispute mutation error:', error);
+      alert(`Error creating dispute: ${error instanceof Error ? error.message : 'Unknown error'}`);
     },
   });
 

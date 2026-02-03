@@ -178,7 +178,7 @@ class ProvenanceService {
    * Record a Ship/Transfer custody event (FR 3.1.5)
    */
   async recordShipment(batchId, shipmentData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -202,10 +202,11 @@ class ProvenanceService {
 
     // Update batch status
     batch.status = BatchStatus.IN_TRANSIT;
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
     
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
@@ -214,7 +215,7 @@ class ProvenanceService {
    * Record a Transfer custody event (change of ownership during transit)
    */
   async recordTransfer(batchId, transferData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -238,10 +239,11 @@ class ProvenanceService {
 
     // Update batch ownership
     batch.ownerPartyId = transferData.toPartyId;
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
     
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
@@ -250,7 +252,7 @@ class ProvenanceService {
    * Record a Receive/Accept event (FR 3.1.5)
    */
   async recordReceipt(batchId, receiptData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -275,10 +277,11 @@ class ProvenanceService {
     // Update batch
     batch.status = BatchStatus.RECEIVED;
     batch.ownerPartyId = receiptData.receiverPartyId;
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
     
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
@@ -287,7 +290,7 @@ class ProvenanceService {
    * Record an Inspect/Test event (optional)
    */
   async recordInspection(batchId, inspectionData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -309,9 +312,10 @@ class ProvenanceService {
     const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
     event.onChainTxHash = anchor.txHash;
 
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
@@ -320,7 +324,7 @@ class ProvenanceService {
    * Record Assay Finalized event (for refinery flow)
    */
   async recordAssayFinalized(batchId, assayData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -344,10 +348,11 @@ class ProvenanceService {
 
     // Update batch with final assay
     batch.declaredAssay = { value: assayData.assayValue, unit: assayData.assayUnit || 'g/t' };
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
     
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
@@ -356,7 +361,7 @@ class ProvenanceService {
    * Flag a dispute on a batch
    */
   async recordDispute(batchId, disputeData) {
-    const batch = db.getBatch(batchId);
+    const batch = await db.getBatch(batchId);
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
     }
@@ -377,10 +382,11 @@ class ProvenanceService {
     event.onChainTxHash = anchor.txHash;
 
     batch.status = BatchStatus.DISPUTE;
+    if (!batch.eventIds) batch.eventIds = [];
     batch.eventIds.push(event.eventId);
     
-    db.updateBatch(batch);
-    db.saveEvent(event);
+    await db.updateBatch(batch);
+    await db.saveEvent(event);
 
     return { event, anchor, batch };
   }
