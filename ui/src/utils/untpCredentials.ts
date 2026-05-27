@@ -810,6 +810,16 @@ export function resolveUntpRouteTarget(params: RouteParams): UntpCredentialTarge
     return { kind: 'dte', entityType: 'ore', id: params.id };
   }
 
+  if (!params.credentialKind && params.entityType && params.eventId) {
+    if (!isSupportedUntpTarget('dte', params.entityType)) return null;
+    return {
+      kind: 'dte',
+      entityType: params.entityType as UntpEntityType,
+      id: params.id,
+      eventId: params.eventId,
+    };
+  }
+
   if (!params.credentialKind || !params.entityType) return null;
   if (!isSupportedUntpTarget(params.credentialKind, params.entityType)) return null;
 
