@@ -273,6 +273,7 @@ export async function buildDTE_BarRefinement(barId, publicConfig = {}) {
     credentialSubject,
     issuanceDate: toISO(bar.refinedAt),
     evidence: buildEvidence(bar),
+    renderPath: `/#/vc/dte/bar/${barId}`,
     publicConfig,
   });
 }
@@ -366,6 +367,7 @@ export async function buildDPP_Product(productId, publicConfig = {}) {
     credentialSubject,
     issuanceDate: toISO(product.certifiedAt),
     evidence: buildEvidence(product),
+    renderPath: `/#/vc/dpp/product/${productId}`,
     publicConfig,
   });
 }
@@ -433,6 +435,7 @@ export async function buildDCC_Assay(productId, publicConfig = {}) {
     credentialSubject,
     issuanceDate: toISO(product.certifiedAt),
     evidence: buildEvidence(product),
+    renderPath: `/#/vc/dcc/product/${productId}`,
     publicConfig,
   });
 }

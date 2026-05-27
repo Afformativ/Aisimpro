@@ -18,7 +18,7 @@ import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
 import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
-import OreCredential from './pages/OreCredential';
+import UntpCredential from './pages/UntpCredential';
 import { DEFAULT_AUTHENTICATED_ROUTE } from './config/navigation';
 import './App.css';
 
@@ -41,7 +41,8 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/change-password" element={<ChangePassword />} />
-            <Route path="/vc/ore/:id" element={<OreCredential />} />
+            <Route path="/vc/ore/:id" element={<UntpCredential />} />
+            <Route path="/vc/:credentialKind/:entityType/:id" element={<UntpCredential />} />
 
             {/* Protected routes — wrapped in Layout + ProtectedRoute */}
             <Route

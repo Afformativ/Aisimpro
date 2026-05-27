@@ -23,7 +23,8 @@ import {
 import * as api from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { OnChainOre, OnChainBar, OnChainProduct, TraceabilityStatus, GasStatus } from '../types';
-import OreQRModal from '../components/OreQRModal';
+import UntpCredentialModal from '../components/UntpCredentialModal';
+import type { UntpCredentialTarget } from '../utils/untpCredentials';
 
 const METAL_COLORS: Record<string, string> = {
   GOLD: '#d4af37',
@@ -61,7 +62,7 @@ export default function OnChainTraceability() {
   const [expandedBar, setExpandedBar] = useState<string | null>(null);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
 
-  const [qrOreId, setQrOreId] = useState<string | null>(null);
+  const [untpTarget, setUntpTarget] = useState<UntpCredentialTarget | null>(null);
 
   // Role flags matching smart-contract roles
   const canMine    = hasAnyRole('MINER', 'ADMIN');
@@ -541,7 +542,7 @@ export default function OnChainTraceability() {
                     <button
                       className="qr-btn"
                       title="View UNTP credential QR code"
-                      onClick={e => { e.stopPropagation(); setQrOreId(ore.id); }}
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dte', entityType: 'ore', id: ore.id }); }}
                     >
                       <QrCode size={13} /> UNTP
                     </button>
@@ -599,6 +600,13 @@ export default function OnChainTraceability() {
                     <span className="onchain-fineness">{(bar.finenessPPT / 10).toFixed(1)}‰</span>
                   </div>
                   <div className="onchain-row-actions">
+                    <button
+                      className="qr-btn"
+                      title="View refined bar UNTP credential"
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dte', entityType: 'bar', id: bar.id }); }}
+                    >
+                      <QrCode size={13} /> UNTP
+                    </button>
                     {bar.explorerUrl && (
                       <a href={bar.explorerUrl} target="_blank" rel="noopener noreferrer" className="anchor-link-inline" onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} /> TX
@@ -653,6 +661,20 @@ export default function OnChainTraceability() {
                     <span className="onchain-type">{prod.productType}</span>
                   </div>
                   <div className="onchain-row-actions">
+                    <button
+                      className="qr-btn"
+                      title="Open product UNTP passport"
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dpp', entityType: 'product', id: prod.id }); }}
+                    >
+                      <QrCode size={13} /> DPP
+                    </button>
+                    <button
+                      className="qr-btn"
+                      title="Open product UNTP conformity credential"
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dcc', entityType: 'product', id: prod.id }); }}
+                    >
+                      <QrCode size={13} /> DCC
+                    </button>
                     {prod.explorerUrl && (
                       <a href={prod.explorerUrl} target="_blank" rel="noopener noreferrer" className="anchor-link-inline" onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} /> TX
@@ -690,7 +712,7 @@ export default function OnChainTraceability() {
       </div>
 
       {/* ── UNTP QR Modal ─────────────────────────────────────── */}
-      {qrOreId && <OreQRModal oreId={qrOreId} onClose={() => setQrOreId(null)} />}
+      {untpTarget && <UntpCredentialModal target={untpTarget} onClose={() => setUntpTarget(null)} />}
 
       {/* ── Info Box ───────────────────────────────────────────── */}
       <div className="info-box">
