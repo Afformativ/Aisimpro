@@ -1,5 +1,5 @@
 # Render.com deployment configuration
-# Deploy to: https://render.com
+# Deploy via Blueprint: https://render.com
 
 services:
   - type: web
@@ -8,23 +8,94 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node src/api.js
+    healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - src/**
+        - contracts/**
+        - scripts/**
+        - package.json
+        - package-lock.json
+        - render.yaml
+        - .env.example
     envVars:
       - key: NODE_ENV
         value: production
       - key: DB_TYPE
-        value: file  # Change to 'mongodb' if using MongoDB Atlas
-      # - key: MONGODB_URI
-      #   sync: false  # Set this manually in Render dashboard if using MongoDB
+        value: mongodb
+      - key: MONGODB_URI
+        sync: false
       - key: DATA_DIR
         value: /opt/render/project/src/data
+      - key: AUTH_ENABLED
+        value: "true"
+      - key: RBAC_ENABLED
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ISSUER
+        value: gold-provenance
+      - key: JWT_AUDIENCE
+        value: gold-provenance-api
+      - key: ACCESS_TOKEN_EXPIRY
+        value: 15m
+      - key: REFRESH_TOKEN_EXPIRY_DAYS
+        value: "30"
+      - key: BCRYPT_ROUNDS
+        value: "12"
+      - key: MAX_LOGIN_ATTEMPTS
+        value: "5"
+      - key: LOCK_DURATION_MINUTES
+        value: "15"
+      - key: DEFAULT_USER_ROLE
+        value: VIEWER
+      - key: BOOTSTRAP_ENABLE
+        value: "false"
+      - key: BOOTSTRAP_SUPERADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_SUPERADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: RATE_LIMIT_MAX
+        value: "500"
       - key: PRIVATE_KEY
-        sync: false  # Set this manually in Render dashboard
+        sync: false
       - key: CONTRACT_ADDRESS
         value: "0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19"
       - key: POLYGON_RPC
         value: "https://rpc-amoy.polygon.technology"
+      - key: TRACEABILITY_RPC_URL
+        value: "https://rpc.cardona.zkevm-rpc.com"
+      - key: TRACEABILITY_EXPLORER
+        value: "https://cardona-zkevm.polygonscan.com"
+      - key: TRACEABILITY_CHUNK_SIZE
+        value: "2000"
+      - key: TRACEABILITY_DEPLOY_BLOCK
+        sync: false
+      - key: UNTP_BASE_URI
+        sync: false
+      - key: UNTP_DID
+        sync: false
+      - key: UNTP_ISSUER_NAME
+        value: Gold Provenance System
     disk:
       name: gold-provenance-data
       mountPath: /opt/render/project/src/data
       sizeGB: 1
 
+  - type: web
+    runtime: static
+    name: gold-provenance-ui
+    rootDir: ui
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    buildFilter:
+      paths:
+        - ui/**
+        - render.yaml
+    envVars:
+      - key: VITE_API_URL
+        sync: false

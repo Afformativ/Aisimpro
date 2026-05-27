@@ -90,6 +90,30 @@ npm run api
 cd ui && npm run dev
 ```
 
+## Render deployment
+
+This repo now includes a root [render.yaml](render.yaml) Blueprint that deploys:
+
+- `gold-provenance-api` as a Node web service
+- `gold-provenance-ui` as a Render static site from `ui/`
+
+Important production requirements:
+
+- Set `DB_TYPE=mongodb`. The auth system uses Mongoose models for users, refresh tokens, roles, and audit events.
+- Set `MONGODB_URI` to your MongoDB Atlas connection string.
+- Set `CORS_ORIGIN` to the exact frontend origin, for example `https://gold-provenance-ui.onrender.com`.
+- Set `VITE_API_URL` on the static site to the backend API URL, for example `https://gold-provenance-api.onrender.com/api`.
+- Set `UNTP_BASE_URI` to the backend public base URL.
+- Set `UNTP_DID` to the matching `did:web:` identifier for that backend domain.
+- Use `BOOTSTRAP_ENABLE=true` only for the first deploy that creates the initial superadmin, then switch it back to `false`.
+
+Minimal Render setup:
+
+1. In Render, create a new Blueprint instance from this GitHub repo.
+2. Fill in the API secrets and URLs that are marked `sync: false`.
+3. Deploy once with `BOOTSTRAP_ENABLE=true` and valid `BOOTSTRAP_SUPERADMIN_*` values if you need an initial admin user.
+4. After the admin account is created, change `BOOTSTRAP_ENABLE` back to `false` and redeploy.
+
 ## Example verification flow
 
 1. Create a batch in the UI or via `POST /api/batches`.
