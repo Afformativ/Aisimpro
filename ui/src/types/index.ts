@@ -116,6 +116,7 @@ export interface TimelineEvent {
 export interface ChainOfCustody {
   batch: {
     batchId: string;
+    referenceNumber?: string;
     quantity?: { weight?: number; unit: string };
     declaredAssay?: { value: number; unit: string } | null;
     status: BatchStatus;
@@ -176,3 +177,111 @@ export type ConfidentialityLevel = 'Public' | 'Restricted' | 'Confidential';
 export const PARTY_TYPES: PartyType[] = ['MineOperator', 'Transporter', 'Buyer', 'Refinery', 'Auditor', 'Other'];
 export const FACILITY_TYPES: FacilityType[] = ['Mine', 'Warehouse', 'Refinery', 'Port', 'Other'];
 export const DOCUMENT_TYPES: DocumentType[] = ['Permit', 'CertificateOfOrigin', 'PackingList', 'WaybillAirwayBill', 'ProFormaInvoice', 'AssayReport', 'Other'];
+
+// ── On-Chain Traceability Types (GoldSilverTraceability.sol) ──
+
+export type MetalType = 'GOLD' | 'SILVER';
+export type SupplyChainStage = 'RAW_ORE' | 'REFINED_BAR' | 'CERTIFIED_PRODUCT';
+
+export interface GasInfo {
+  gasUsed: number;
+  gasPriceGwei: number;
+  txCostPOL: number;
+}
+
+export interface GasStatus {
+  baseFeeGwei: number;
+  priorityFeeGwei: number;
+  gasPriceGwei: number;       // baseFee + tip (real effective price)
+  maxGasPriceGwei: number;
+  maxTxCostPOL: number;
+  walletBalancePOL: number;
+  estimatedTxCostPOL: number;
+  estimatedTxsRemaining: number;
+  gasPriceStatus: 'normal' | 'elevated' | 'high';
+  simulation?: boolean;
+  error?: string;
+}
+
+export interface TraceabilityStatus {
+  live: boolean;
+  contractAddress: string | null;
+  wallet: string | null;
+  simulation: boolean;
+  network: string | null;
+  explorerUrl: string | null;
+  oreCount: number;
+  barCount: number;
+  productCount: number;
+  eventCount: number;
+  gasConfig: {
+    priorityFeeGwei: number;
+    maxGasPriceGwei: number;
+    maxTxCostPOL: number;
+  } | null;
+}
+
+export interface OnChainOre {
+  id: string;
+  stage: 'RAW_ORE';
+  metal: MetalType;
+  mineId: string;
+  originCountry: string;
+  mineralType: string;
+  extractedAt: number;
+  weightGrams: number;
+  estimatedGrade: string;
+  currentCustodian: string;
+  txHash: string | null;
+  explorerUrl: string | null;
+  gasInfo?: GasInfo;
+  documentRoot?: string | null;
+  evidenceManifestCID?: string | null;
+}
+
+export interface OnChainBar {
+  id: string;
+  stage: 'REFINED_BAR';
+  inputOreIds: string[];
+  metal: MetalType;
+  refineryId: string;
+  refinedAt: number;
+  outputWeightGrams: number;
+  finenessPPT: number;
+  barSerialNumber: string;
+  currentCustodian: string;
+  txHash: string | null;
+  explorerUrl: string | null;
+  gasInfo?: GasInfo;
+  documentRoot?: string | null;
+  evidenceManifestCID?: string | null;
+}
+
+export interface OnChainProduct {
+  id: string;
+  stage: 'CERTIFIED_PRODUCT';
+  inputBarId: string;
+  metal: MetalType;
+  assayerId: string;
+  certifiedAt: number;
+  weightGrams: number;
+  finenessPPT: number;
+  hallmark: string;
+  sku: string;
+  productType: string;
+  currentCustodian: string;
+  txHash: string | null;
+  explorerUrl: string | null;
+  gasInfo?: GasInfo;
+  documentRoot?: string | null;
+  evidenceManifestCID?: string | null;
+}
+
+export type OnChainEntity = OnChainOre | OnChainBar | OnChainProduct;
+
+export interface OnChainEvent {
+  type: string;
+  id: string;
+  timestamp: number;
+  data: OnChainEntity;
+}

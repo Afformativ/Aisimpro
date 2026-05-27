@@ -10,7 +10,9 @@ import { ethers } from 'ethers';
 // Event Logger Contract ABI (minimal - just emits events)
 const EVENT_LOGGER_ABI = [
   "event HashAnchored(bytes32 indexed id, bytes32 hash, uint256 timestamp, address indexed sender)",
-  "function logHash(bytes32 id, bytes32 hash) external"
+  "event RootAnchored(bytes32 indexed merkleRoot, bytes32 indexed batchIdHash, string scopeType, string scopeId, uint256 timestamp, address indexed sender, bytes32 prevChainedRoot, bytes32 chainedRoot)",
+  "function logHash(bytes32 id, bytes32 hash) external",
+  "function anchorRoot(bytes32 merkleRoot, bytes32 batchIdHash, string scopeType, string scopeId, string schemaVersion, string treeAlgo, bytes32 prevChainedRoot, bytes32 chainedRoot) external"
 ];
 
 // Network configurations
@@ -190,6 +192,94 @@ class BlockchainAnchoringService {
    */
   async anchorEvent(eventId, eventHash) {
     return this.anchorHash(`event:${eventId}`, eventHash);
+  }
+
+  /**
+   * Anchor a Merkle root on-chain (batched certificate anchoring).
+   * Uses the anchorRoot() contract function when live, otherwise simulates.
+   * 
+   * @param {object} params
+   * @param {string} params.merkleRoot - hex Merkle root (no 0x prefix)
+   * @param {string} params.batchId - off-chain batch UUID
+   * @param {string} params.scopeType - 'shipment' | 'day' | 'lot'
+   * @param {string} params.scopeId
+   * @param {string} [params.schemaVersion]
+   * @param {string} [params.treeAlgo]
+   * @param {string} [params.prevChainedRoot]
+   * @param {string} [params.chainedRoot]
+   * @returns {object} anchor result
+   */
+  async anchorMerkleRoot({
+    merkleRoot,
+    batchId,
+    scopeType = 'shipment',
+    scopeId = '',
+    schemaVersion = '1.0.0',
+    treeAlgo = 'sha256-binary-v1',
+    prevChainedRoot = null,
+    chainedRoot = null,
+  }) {
+    const anchorRecord = {
+      batchId,
+      merkleRoot,
+      scopeType,
+      scopeId,
+      timestamp: new Date().toISOString(),
+      txHash: null,
+      blockNumber: null,
+      explorerUrl: null,
+    };
+
+    if (this.simulationMode) {
+      const fakeTxHash = '0x' + Array(64).fill(0).map(() =>
+        Math.floor(Math.random() * 16).toString(16)
+      ).join('');
+
+      anchorRecord.txHash = fakeTxHash;
+      anchorRecord.blockNumber = Math.floor(Math.random() * 1000000) + 50000000;
+      anchorRecord.explorerUrl = `${this.config.explorerUrl}/tx/${fakeTxHash}`;
+      anchorRecord.simulated = true;
+      this.simulatedTransactions.push(anchorRecord);
+
+      return { success: true, ...anchorRecord };
+    }
+
+    try {
+      const rootBytes32 = this.hashToBytes32(merkleRoot);
+      const batchIdBytes32 = this.stringToBytes32(batchId);
+      const prevBytes32 = prevChainedRoot
+        ? this.hashToBytes32(prevChainedRoot)
+        : ethers.ZeroHash;
+      const chainBytes32 = chainedRoot
+        ? this.hashToBytes32(chainedRoot)
+        : ethers.ZeroHash;
+
+      console.log(` Anchoring Merkle root for batch ${batchId.substring(0, 8)}...`);
+      const tx = await this.contract.anchorRoot(
+        rootBytes32,
+        batchIdBytes32,
+        scopeType,
+        scopeId,
+        schemaVersion,
+        treeAlgo,
+        prevBytes32,
+        chainBytes32
+      );
+      console.log(` TX sent: ${tx.hash}`);
+
+      const receipt = await tx.wait();
+      console.log(` Confirmed in block ${receipt.blockNumber}`);
+
+      anchorRecord.txHash = receipt.hash;
+      anchorRecord.blockNumber = receipt.blockNumber;
+      anchorRecord.explorerUrl = `${this.config.explorerUrl}/tx/${receipt.hash}`;
+      anchorRecord.simulated = false;
+
+      return { success: true, ...anchorRecord };
+    } catch (error) {
+      console.error(`Merkle root anchor failed: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 
   /**

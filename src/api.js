@@ -5,23 +5,63 @@
 
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
 import provenanceService from './services/provenance.js';
 import anchoringService from './services/anchoring.js';
+import traceabilityContract from './services/traceability-contract.js';
 import { PartyType, FacilityType, DocumentType } from './models/index.js';
+import untpRoutes from './routes/untp.js';
+import { buildDIDDocument } from './services/untp-credentials.js';
+
+// Auth imports
+import authRoutes from './auth/routes.js';
+import adminRoutes from './auth/admin-routes.js';
+import { bootstrap } from './auth/bootstrap.js';
+import { requireAuth, requireAnyRole, enforcePasswordChange } from './auth/guards.js';
 
 const app = express();
-app.use(express.json());
 
-// CORS middleware for UI
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
+// ============ SECURITY MIDDLEWARE ============
+
+// Helmet — security headers
+app.use(helmet({ contentSecurityPolicy: false })); // CSP off for dev simplicity
+
+// CORS — configurable origins
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+app.use(cors({
+  origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN.split(','),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
+
+// Body parsing
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
+
+// Global rate limiter (100 req / 15 min per IP)
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '500', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
 });
+app.use('/api/', globalLimiter);
+
+// Strict auth rate limiter (10 attempts / 15 min per IP)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts, please try again later' },
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
 
 // ============ HEALTH CHECK ============
 
@@ -29,9 +69,39 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    simulationMode: anchoringService.isSimulated()
+    simulationMode: anchoringService.isSimulated(),
+    merkleAnchoringEnabled: process.env.MERKLE_ANCHORING_ENABLED === 'true',
+    authEnabled: process.env.AUTH_ENABLED !== 'false',
   });
 });
+
+// ============ UNTP — DID document (server-level, public) ============
+// Served at /.well-known/did.json so that did:web:yourdomain.com resolves.
+// No auth required — DID documents are public by spec.
+
+app.get('/.well-known/did.json', (req, res) => {
+  const did = process.env.UNTP_DID || 'did:web:localhost';
+  const doc = buildDIDDocument(did, { name: process.env.UNTP_ISSUER_NAME });
+  res.set('Content-Type', 'application/did+ld+json');
+  res.json(doc);
+});
+
+// ============ AUTH & ADMIN ROUTES (public + protected inside) ============
+
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+
+// ============ UNTP — public read-only endpoints (no auth required) ============
+// Credential and resolve endpoints are public by design — anyone can verify a VC.
+// Entity URI routes (/ore/:id, /bar/:id etc.) mounted at root so the base URI
+// links resolve directly (e.g. http://localhost:3000/ore/0x1234...).
+// Write endpoints (/api/untp/*) are protected by the auth guard below.
+app.use('/', untpRoutes);
+app.use('/api', untpRoutes);
+
+// ============ PROTECTED API ROUTES ============
+// All routes below require valid JWT (unless AUTH_ENABLED=false)
+app.use('/api', requireAuth, enforcePasswordChange);
 
 // ============ PARTIES ============
 
@@ -82,6 +152,11 @@ app.get('/api/facilities/:facilityId', async (req, res) => {
 });
 
 // ============ DOCUMENTS ============
+
+app.get('/api/documents', async (req, res) => {
+  const documents = await provenanceService.getAllDocuments();
+  res.json(documents);
+});
 
 app.post('/api/documents', (req, res) => {
   try {
@@ -256,6 +331,324 @@ app.get('/api/enums', (req, res) => {
   });
 });
 
+// ============ MERKLE ANCHORING ENDPOINTS ============
+// All guarded by MERKLE_ANCHORING_ENABLED feature flag.
+
+/**
+ * GET /api/certificates/:id/proof
+ * Returns the full verification package for a certificate (event).
+ */
+app.get('/api/certificates/:id/proof', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  try {
+    const pkg = await provenanceService.exportMerkleProof(req.params.id);
+    if (!pkg) {
+      return res.status(404).json({ error: 'Certificate or proof not found' });
+    }
+    res.json(pkg);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/verify
+ * Standalone verification – accepts a certificate payload + proof object.
+ */
+app.post('/api/verify', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  try {
+    const {
+      certificateId,
+      certificatePayload,
+      docHashList,
+      schemaVersion,
+      issuerKeyId,
+      proof,
+      merkleRoot,
+    } = req.body;
+
+    // If proof + merkleRoot supplied, use standalone (no DB required)
+    if (proof && merkleRoot) {
+      const merkle = await import('./services/merkle/index.js');
+      const result = merkle.verifyStandalone({
+        certificatePayload,
+        certificateId,
+        docHashList,
+        schemaVersion,
+        issuerKeyId,
+        proof,
+        merkleRoot,
+      });
+      return res.json(result);
+    }
+
+    // Otherwise do full DB-backed verification
+    const result = await provenanceService.verifyMerkleCertificate({
+      certificateId,
+      certificatePayload,
+      docHashList,
+      schemaVersion,
+      issuerKeyId,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/merkle/batches/:batchId/close
+ * Close a Merkle anchor batch (compute root + generate proofs).
+ */
+app.post('/api/merkle/batches/:batchId/close', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  try {
+    const result = await provenanceService.closeMerkleBatch(req.params.batchId, req.body.userId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/merkle/batches/close-by-scope
+ * Close all open batches for a given scope.
+ */
+app.post('/api/merkle/batches/close-by-scope', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  try {
+    const { scopeId, userId } = req.body;
+    if (!scopeId) return res.status(400).json({ error: 'scopeId required' });
+    const results = await provenanceService.closeMerkleBatchesByScope(scopeId, userId);
+    res.json(results);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/merkle/anchor
+ * Trigger anchoring of all closed-but-unanchored batches.
+ */
+app.post('/api/merkle/anchor', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  try {
+    const results = await provenanceService.anchorMerkleBatches();
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/merkle/batches
+ * List all Merkle anchor batches.
+ */
+app.get('/api/merkle/batches', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  const batches = await provenanceService.getMerkleAnchorBatches();
+  res.json(batches);
+});
+
+/**
+ * GET /api/merkle/metrics
+ * Observability metrics for Merkle anchoring.
+ */
+app.get('/api/merkle/metrics', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  const metrics = await provenanceService.getMerkleMetrics();
+  res.json(metrics);
+});
+
+/**
+ * GET /api/merkle/audit
+ * Merkle-specific audit log.
+ */
+app.get('/api/merkle/audit', async (req, res) => {
+  if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'Merkle anchoring not enabled' });
+  }
+  const entityId = req.query.entityId || null;
+  const log = await provenanceService.getMerkleAuditLog(entityId);
+  res.json(log);
+});
+
+// ============ ON-CHAIN TRACEABILITY (GoldSilverTraceability.sol) ============
+
+/**
+ * GET /api/traceability/status
+ * Contract connection status + counts.
+ */
+app.get('/api/traceability/status', (req, res) => {
+  res.json(traceabilityContract.status());
+});
+
+/**
+ * GET /api/traceability/gas
+ * Real-time gas price, wallet balance, and safety caps.
+ */
+app.get('/api/traceability/gas', async (req, res) => {
+  try {
+    res.json(await traceabilityContract.getGasInfo());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/traceability/ore
+ * Register raw ore extracted at the mine.
+ * Requires: MINER or ADMIN role
+ */
+app.post('/api/traceability/ore', requireAnyRole('MINER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await traceabilityContract.registerOre(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/traceability/refine
+ * Smelt one or more ores into a refined bar.
+ * Requires: REFINER or ADMIN role
+ */
+app.post('/api/traceability/refine', requireAnyRole('REFINER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await traceabilityContract.refine(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/traceability/certify
+ * Certify a refined bar into a market-ready product.
+ * Requires: ASSAYER or ADMIN role
+ */
+app.post('/api/traceability/certify', requireAnyRole('ASSAYER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await traceabilityContract.certify(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/traceability/ore/:id
+ */
+app.get('/api/traceability/ore/:id', async (req, res) => {
+  try {
+    const ore = await traceabilityContract.getOre(req.params.id);
+    res.json(ore);
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/traceability/bar/:id
+ */
+app.get('/api/traceability/bar/:id', async (req, res) => {
+  try {
+    const bar = await traceabilityContract.getBar(req.params.id);
+    res.json(bar);
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/traceability/product/:id
+ */
+app.get('/api/traceability/product/:id', async (req, res) => {
+  try {
+    const product = await traceabilityContract.getProduct(req.params.id);
+    res.json(product);
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/traceability/ores   – list all ores (simulation)
+ * GET /api/traceability/bars   – list all bars (simulation)
+ * GET /api/traceability/products – list all products (simulation)
+ * GET /api/traceability/events – chronological event list
+ */
+app.get('/api/traceability/ores', (req, res) => res.json(traceabilityContract.listOres()));
+app.get('/api/traceability/bars', (req, res) => res.json(traceabilityContract.listBars()));
+app.get('/api/traceability/products', (req, res) => res.json(traceabilityContract.listProducts()));
+app.get('/api/traceability/events', (req, res) => res.json(traceabilityContract.listEvents()));
+
+// ============ DOCUMENT ROOTS (on-chain Merkle anchoring) ============
+
+/**
+ * POST /api/traceability/:recordType/:id/document-root
+ * Set the Merkle document root for an ore/bar/product.
+ * Body: { root: bytes32, manifestCID?: string }
+ */
+app.post('/api/traceability/:recordType/:id/document-root', requireAnyRole('MINER', 'REFINER', 'ASSAYER', 'ADMIN'), async (req, res) => {
+  try {
+    const { recordType, id } = req.params;
+    const { root, manifestCID } = req.body;
+    if (!root) return res.status(400).json({ error: 'root is required (bytes32 Merkle root)' });
+    const result = await traceabilityContract.setDocumentRoot(recordType, id, root, manifestCID || '');
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/traceability/:recordType/:id/document-root
+ * Get the stored document root + manifest CID.
+ */
+app.get('/api/traceability/:recordType/:id/document-root', async (req, res) => {
+  try {
+    const { recordType, id } = req.params;
+    const result = await traceabilityContract.getDocumentRoot(recordType, id);
+    res.json(result);
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/traceability/:recordType/:id/verify-document
+ * Verify a document Merkle proof on-chain.
+ * Body: { proof: bytes32[], leaf: bytes32 }
+ */
+app.post('/api/traceability/:recordType/:id/verify-document', async (req, res) => {
+  try {
+    const { recordType, id } = req.params;
+    const { proof, leaf } = req.body;
+    if (!proof || !leaf) return res.status(400).json({ error: 'proof and leaf are required' });
+    const valid = await traceabilityContract.verifyDocument(recordType, id, proof, leaf);
+    res.json({ valid, recordType, recordId: id, leaf });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // ============ SEED DATA ============
 
 async function seedTestData() {
@@ -425,13 +818,27 @@ export async function startServer() {
     }
   }
 
+  // Connect traceability smart contract
+  await traceabilityContract.connect();
+
   // Seed test data
   await seedTestData();
+
+  // Auth bootstrap — seed roles & create superadmin if configured
+  if (process.env.AUTH_ENABLED !== 'false') {
+    try {
+      await bootstrap();
+      console.log('Auth system bootstrapped');
+    } catch (err) {
+      console.error('Auth bootstrap error:', err.message);
+    }
+  }
   
   app.listen(PORT, () => {
     console.log(`Gold Provenance API running on http://localhost:${PORT}`);
     console.log(`Mode: ${anchoringService.isSimulated() ? 'SIMULATION' : 'LIVE BLOCKCHAIN'}`);
     console.log(`Database: ${process.env.DB_TYPE || 'file'}`);
+    console.log(`Auth: ${process.env.AUTH_ENABLED !== 'false' ? 'ENABLED' : 'DISABLED'}`);
   });
 }
 

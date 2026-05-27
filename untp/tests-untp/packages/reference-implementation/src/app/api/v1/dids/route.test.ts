@@ -1,0 +1,618 @@
+// Mock next/server before importing route handlers
+jest.mock('next/server', () => ({
+  NextResponse: {
+    json: (body: unknown, init?: { status?: number }) => ({
+      status: init?.status ?? 200,
+      json: async () => body,
+    }),
+  },
+}));
+
+// Mock withTenantAuth to mirror handleRouteError behaviour
+jest.mock('@/lib/api/with-tenant-auth', () => {
+  const { NotFoundError, ForbiddenError, ConflictError, errorMessage, ServiceRegistryError } =
+    jest.requireActual('@/lib/api/errors');
+  const { ValidationError } = jest.requireActual('@/lib/api/validation');
+  const { ServiceError } = jest.requireActual('@uncefact/untp-ri-services');
+
+  function jsonResponse(body: unknown, init?: { status?: number }) {
+    return { status: init?.status ?? 200, json: async () => body };
+  }
+
+  return {
+    withTenantAuth:
+      (handler: (req: unknown, ctx: unknown) => Promise<unknown>) => async (req: unknown, ctx: unknown) => {
+        try {
+          return await handler(req, ctx);
+        } catch (e: unknown) {
+          if (e instanceof ValidationError) {
+            return jsonResponse({ error: (e as Error).message }, { status: 400 });
+          }
+          if (e instanceof ForbiddenError) {
+            return jsonResponse({ error: (e as Error).message }, { status: 403 });
+          }
+          if (e instanceof ConflictError) {
+            return jsonResponse({ error: (e as Error).message }, { status: 409 });
+          }
+          if (e instanceof NotFoundError) {
+            return jsonResponse({ error: (e as Error).message }, { status: 404 });
+          }
+          if (e instanceof ServiceRegistryError) {
+            return jsonResponse({ error: (e as Error).message }, { status: 500 });
+          }
+          if (e instanceof ServiceError) {
+            const serviceErr = e as Error & { code?: string; statusCode?: number };
+            return jsonResponse(
+              { error: serviceErr.message, code: serviceErr.code },
+              { status: serviceErr.statusCode },
+            );
+          }
+          return jsonResponse({ error: errorMessage(e) }, { status: 500 });
+        }
+      },
+  };
+});
+
+const mockResolveDidService = jest.fn();
+const mockCreateDid = jest.fn();
+const mockListDids = jest.fn();
+const mockFindDidByAliasAndService = jest.fn();
+
+jest.mock('@/lib/services/resolve-did-service', () => ({
+  resolveDidService: (...args: unknown[]) => mockResolveDidService(...args),
+}));
+
+jest.mock('@/lib/prisma/repositories', () => ({
+  createDid: (input: unknown) => mockCreateDid(input),
+  listDids: (orgId: string, opts: unknown) => mockListDids(orgId, opts),
+  findDidByAliasAndService: (alias: string, serviceInstanceId: string) =>
+    mockFindDidByAliasAndService(alias, serviceInstanceId),
+}));
+
+import { ServiceResolutionError } from '@/lib/api/errors';
+import { DidType, DidMethod, DidStatus } from '@uncefact/untp-ri-services';
+import { DEFAULT_PAGE_LIMIT } from '@/lib/api/pagination';
+import { POST, GET } from './route';
+
+function createFakeRequest(options: { method?: string; body?: unknown; url?: string; rawBody?: string }): Request {
+  const { method = 'POST', body, url = 'http://localhost/api/v1/dids', rawBody } = options;
+  const bodyString = rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined);
+  return {
+    method,
+    url,
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json:
+      bodyString !== undefined
+        ? async () => JSON.parse(bodyString)
+        : async () => {
+            throw new SyntaxError('Unexpected token');
+          },
+  } as unknown as Request;
+}
+
+function createBadJsonRequest(): Request {
+  return {
+    method: 'POST',
+    url: 'http://localhost/api/v1/dids',
+    headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: async () => {
+      throw new SyntaxError('Unexpected token n in JSON at position 0');
+    },
+  } as unknown as Request;
+}
+
+const AUTH_CONTEXT = { tenantId: 'org-1', params: Promise.resolve({}) };
+
+describe('POST /api/v1/dids', () => {
+  const mockDidService = {
+    create: jest.fn(),
+    normaliseAlias: jest.fn().mockImplementation((alias: string) => alias),
+    getSupportedTypes: jest.fn().mockReturnValue(['MANAGED', 'SELF_MANAGED']),
+    getSupportedMethods: jest.fn().mockReturnValue(['DID_WEB']),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockResolveDidService.mockResolvedValue({ service: mockDidService, instanceId: 'inst-1' });
+    mockFindDidByAliasAndService.mockResolvedValue(false);
+  });
+
+  it('creates a managed DID and returns 201', async () => {
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com:org:123',
+      keyId: 'key-1',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com:org:123' },
+    });
+    mockCreateDid.mockResolvedValue({
+      id: 'record-1',
+      did: 'did:web:example.com:org:123',
+      type: DidType.MANAGED,
+      status: DidStatus.ACTIVE,
+    });
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'my-did', name: 'My DID' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.did).toBe('did:web:example.com:org:123');
+  });
+
+  it('creates a self-managed DID with UNVERIFIED status and serviceInstanceId', async () => {
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com:org:456',
+      keyId: 'key-2',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com:org:456' },
+    });
+    mockCreateDid.mockResolvedValue({
+      id: 'record-2',
+      status: DidStatus.UNVERIFIED,
+    });
+
+    const req = createFakeRequest({
+      body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'self-managed' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(201);
+    expect(mockCreateDid).toHaveBeenCalledWith(
+      expect.objectContaining({ status: DidStatus.UNVERIFIED, serviceInstanceId: 'inst-1' }),
+    );
+  });
+
+  it('passes isDefault to createDid when provided', async () => {
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com:org:789',
+      keyId: 'key-3',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com:org:789' },
+    });
+    mockCreateDid.mockResolvedValue({
+      id: 'record-3',
+      did: 'did:web:example.com:org:789',
+      type: DidType.MANAGED,
+      status: DidStatus.ACTIVE,
+      isDefault: true,
+    });
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'default-did', isDefault: true },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(mockCreateDid).toHaveBeenCalledWith(expect.objectContaining({ isDefault: true }));
+    expect(json.isDefault).toBe(true);
+  });
+
+  it('returns 400 for invalid type', async () => {
+    const req = createFakeRequest({
+      body: { type: 'INVALID', method: DidMethod.DID_WEB },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('type must be');
+  });
+
+  it('returns 400 for missing type', async () => {
+    const req = createFakeRequest({ body: { method: DidMethod.DID_WEB } });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for invalid method', async () => {
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: 'INVALID' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('method must be');
+  });
+
+  it('returns 400 for missing method', async () => {
+    const req = createFakeRequest({ body: { type: DidType.MANAGED } });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('method is required');
+  });
+
+  it('returns 400 for invalid JSON body', async () => {
+    const req = createBadJsonRequest();
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Invalid JSON body');
+  });
+
+  it('returns 500 when DID service fails', async () => {
+    mockDidService.create.mockRejectedValue(new Error('VCKit error'));
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'test' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('VCKit error');
+  });
+
+  it('passes correct options to didService.create', async () => {
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com',
+      keyId: 'key-1',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com' },
+    });
+    mockCreateDid.mockResolvedValue({ id: 'record-1' });
+
+    const req = createFakeRequest({
+      body: {
+        type: DidType.MANAGED,
+        method: DidMethod.DID_WEB,
+        alias: 'test-org',
+        name: 'Test',
+        description: 'A test DID',
+      },
+    });
+    await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(mockDidService.create).toHaveBeenCalledWith({
+      type: DidType.MANAGED,
+      method: DidMethod.DID_WEB,
+      alias: 'test-org',
+      name: 'Test',
+      description: 'A test DID',
+    });
+  });
+
+  it('returns 500 when service resolution fails', async () => {
+    mockResolveDidService.mockRejectedValue(new ServiceResolutionError('DID', 'org-1'));
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'test' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('No service instance available');
+  });
+
+  it('returns 400 when service does not support the requested type', async () => {
+    mockDidService.getSupportedTypes.mockReturnValue(['MANAGED']);
+
+    const req = createFakeRequest({
+      body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'test' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('type must be one of');
+  });
+
+  it('returns 400 when alias normalisation fails', async () => {
+    mockDidService.normaliseAlias.mockImplementation(() => {
+      throw new Error('Invalid DID alias: "!!!" produces an empty identifier after normalisation');
+    });
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: '!!!' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('Invalid DID alias');
+  });
+
+  it('passes the normalised alias to didService.create', async () => {
+    mockDidService.normaliseAlias.mockReturnValue('my-normalised-alias');
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com:my-normalised-alias',
+      keyId: 'key-1',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com:my-normalised-alias' },
+    });
+    mockCreateDid.mockResolvedValue({ id: 'record-1' });
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'My Normalised Alias' },
+    });
+    await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(mockDidService.normaliseAlias).toHaveBeenCalledWith(
+      'My Normalised Alias',
+      DidMethod.DID_WEB,
+      DidType.MANAGED,
+    );
+    expect(mockDidService.create).toHaveBeenCalledWith(expect.objectContaining({ alias: 'my-normalised-alias' }));
+  });
+
+  it('returns 409 when DID with same alias already exists on service instance', async () => {
+    mockDidService.normaliseAlias.mockReturnValue('existing-alias');
+    mockFindDidByAliasAndService.mockResolvedValue(true);
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'existing-alias' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toBeDefined();
+    expect(mockFindDidByAliasAndService).toHaveBeenCalledWith('existing-alias', 'inst-1');
+    expect(mockDidService.create).not.toHaveBeenCalled();
+    expect(mockCreateDid).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when upstream provider reports DID already exists', async () => {
+    const { DidConflictError } = jest.requireActual('@uncefact/untp-ri-services');
+    mockDidService.create.mockRejectedValue(new DidConflictError('existing-alias'));
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'existing-alias' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+    const json = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(json.error).toContain('already exists');
+  });
+
+  it('returns 400 when service does not support the requested method', async () => {
+    mockDidService.getSupportedMethods.mockReturnValue(['DID_WEB']);
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB_VH, alias: 'test' },
+    });
+    const res = await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('method must be one of');
+  });
+
+  it('resolves the DID service with the organisation ID', async () => {
+    mockDidService.create.mockResolvedValue({
+      did: 'did:web:example.com',
+      keyId: 'key-1',
+      document: { '@context': 'https://www.w3.org/ns/did/v1', id: 'did:web:example.com' },
+    });
+    mockCreateDid.mockResolvedValue({ id: 'record-1' });
+
+    const req = createFakeRequest({
+      body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'test' },
+    });
+    await POST(req, AUTH_CONTEXT as unknown as Parameters<typeof POST>[1]);
+
+    expect(mockResolveDidService).toHaveBeenCalledWith('org-1', undefined);
+  });
+
+  describe('root DID protection', () => {
+    const SYSTEM_TENANT_CONTEXT = { tenantId: 'caq0ibyulrnh85itqtbgusfp3', params: Promise.resolve({}) };
+    const TENANT_CONTEXT = { tenantId: 'org-1', params: Promise.resolve({}) };
+
+    beforeEach(() => {
+      process.env.SYSTEM_VC_BASE_URL = 'http://vckit.example.com:3332';
+      mockDidService.getSupportedTypes.mockReturnValue(['MANAGED', 'SELF_MANAGED']);
+      mockDidService.getSupportedMethods.mockReturnValue(['DID_WEB']);
+      mockDidService.normaliseAlias.mockImplementation((alias: string) =>
+        alias.toLowerCase().replace(/[^a-z0-9.:-]/g, ''),
+      );
+      mockDidService.create.mockResolvedValue({ did: 'did:web:vckit.example.com%3A3332', keyId: 'key-1' });
+      mockCreateDid.mockResolvedValue({ id: 'record-1' });
+    });
+
+    afterEach(() => {
+      delete process.env.SYSTEM_VC_BASE_URL;
+    });
+
+    it('returns 403 when a tenant creates a self-managed root DID matching the system VC domain', async () => {
+      const req = createFakeRequest({
+        body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'vckit.example.com:3332' },
+      });
+      const res = await POST(req, TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error).toContain('system VC service domain');
+    });
+
+    it('returns 403 when a tenant creates a self-managed root DID matching the hostname without port', async () => {
+      const req = createFakeRequest({
+        body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'vckit.example.com' },
+      });
+      const res = await POST(req, TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(403);
+      const json = await res.json();
+      expect(json.error).toContain('system VC service domain');
+    });
+
+    it('allows the system tenant to create a self-managed root DID for the VC domain', async () => {
+      const req = createFakeRequest({
+        body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'vckit.example.com%3A3332' },
+      });
+      const res = await POST(req, SYSTEM_TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(201);
+    });
+
+    it('allows a tenant to create a self-managed DID with a path under the VC domain', async () => {
+      mockDidService.normaliseAlias.mockReturnValue('vckit.example.com:org:acme');
+      mockDidService.create.mockResolvedValue({ did: 'did:web:vckit.example.com:org:acme', keyId: 'key-2' });
+      mockCreateDid.mockResolvedValue({ id: 'record-2' });
+
+      const req = createFakeRequest({
+        body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'vckit.example.com:org:acme' },
+      });
+      const res = await POST(req, TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(201);
+    });
+
+    it('allows a tenant to create a managed DID (not affected by root DID protection)', async () => {
+      mockDidService.create.mockResolvedValue({ did: 'did:web:vckit.example.com:org:123', keyId: 'key-3' });
+      mockCreateDid.mockResolvedValue({ id: 'record-3' });
+
+      const req = createFakeRequest({
+        body: { type: DidType.MANAGED, method: DidMethod.DID_WEB, alias: 'my-did' },
+      });
+      const res = await POST(req, TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(201);
+    });
+
+    it('skips the check when SYSTEM_VC_BASE_URL is not set', async () => {
+      delete process.env.SYSTEM_VC_BASE_URL;
+      mockDidService.create.mockResolvedValue({ did: 'did:web:anything.com', keyId: 'key-4' });
+      mockCreateDid.mockResolvedValue({ id: 'record-4' });
+
+      const req = createFakeRequest({
+        body: { type: DidType.SELF_MANAGED, method: DidMethod.DID_WEB, alias: 'anything.com' },
+      });
+      const res = await POST(req, TENANT_CONTEXT as unknown as Parameters<typeof POST>[1]);
+      expect(res.status).toBe(201);
+    });
+  });
+});
+
+describe('GET /api/v1/dids', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('lists DIDs for the organisation with pagination', async () => {
+    const dids = [{ id: '1', did: 'did:web:example.com' }];
+    mockListDids.mockResolvedValue({ data: dids, total: 1 });
+
+    const req = createFakeRequest({ method: 'GET', url: 'http://localhost/api/v1/dids' });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.data).toEqual(dids);
+    expect(json.pagination).toEqual({
+      total: 1,
+      limit: DEFAULT_PAGE_LIMIT,
+      offset: 0,
+      hasMore: false,
+    });
+  });
+
+  it('passes query parameters to listDids', async () => {
+    mockListDids.mockResolvedValue({ data: [], total: 0 });
+
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?type=MANAGED&status=ACTIVE&serviceInstanceId=inst-1&limit=10&offset=5',
+    });
+    await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(mockListDids).toHaveBeenCalledWith('org-1', {
+      type: 'MANAGED',
+      status: 'ACTIVE',
+      serviceInstanceId: 'inst-1',
+      limit: 10,
+      offset: 5,
+    });
+  });
+
+  it('handles no query parameters', async () => {
+    mockListDids.mockResolvedValue({ data: [], total: 0 });
+
+    const req = createFakeRequest({ method: 'GET', url: 'http://localhost/api/v1/dids' });
+    await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(mockListDids).toHaveBeenCalledWith('org-1', {
+      type: undefined,
+      status: undefined,
+      serviceInstanceId: undefined,
+      limit: undefined,
+      offset: undefined,
+    });
+  });
+
+  it('returns hasMore: true when more results exist', async () => {
+    const dids = [{ id: '1' }, { id: '2' }];
+    mockListDids.mockResolvedValue({ data: dids, total: 5 });
+
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?limit=2&offset=0',
+    });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+    const json = await res.json();
+
+    expect(json.pagination).toEqual({
+      total: 5,
+      limit: 2,
+      offset: 0,
+      hasMore: true,
+    });
+  });
+
+  it('returns 400 for invalid type query parameter', async () => {
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?type=GARBAGE',
+    });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('type must be');
+  });
+
+  it('returns 400 for invalid status query parameter', async () => {
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?status=GARBAGE',
+    });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('status must be');
+  });
+
+  it('returns 400 for non-numeric limit', async () => {
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?limit=abc',
+    });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('limit must be a positive integer');
+  });
+
+  it('returns 400 for negative offset', async () => {
+    const req = createFakeRequest({
+      method: 'GET',
+      url: 'http://localhost/api/v1/dids?offset=-1',
+    });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('offset must be a non-negative integer');
+  });
+
+  it('returns 500 when listDids throws', async () => {
+    mockListDids.mockRejectedValue(new Error('Database error'));
+
+    const req = createFakeRequest({ method: 'GET', url: 'http://localhost/api/v1/dids' });
+    const res = await GET(req, AUTH_CONTEXT as unknown as Parameters<typeof GET>[1]);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('Database error');
+  });
+});

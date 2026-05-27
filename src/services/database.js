@@ -145,6 +145,12 @@ class Database {
     return document;
   }
 
+  updateDocument(document) {
+    this.documents.set(document.documentId, document);
+    this.logAction('UPDATE', 'Document', document.documentId, document);
+    return document;
+  }
+
   getDocument(documentId) {
     return this.documents.get(documentId) || null;
   }

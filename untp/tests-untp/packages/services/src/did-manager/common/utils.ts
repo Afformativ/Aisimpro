@@ -1,0 +1,119 @@
+/**
+ * DID utility functions.
+ */
+
+import { DID_METHOD_BY_URI } from '../types.js';
+import { DidParseError, DidMethodNotSupportedError, DidInputError } from '../errors.js';
+
+/**
+ * Converts a did:web or did:webvh identifier to its HTTPS resolution URL.
+ *
+ * did:web resolves to did.json, did:webvh resolves to did.jsonl:
+ *   did:web:example.com              -> https://example.com/.well-known/did.json
+ *   did:web:example.com:path:to      -> https://example.com/path/to/did.json
+ *   did:web:example.com%3A3000       -> https://example.com:3000/.well-known/did.json
+ *   did:webvh:example.com:org:abc    -> https://example.com/org/abc/did.jsonl
+ *   did:webvh:example.com            -> https://example.com/.well-known/did.jsonl
+ */
+export function didWebToUrl(did: string): string {
+  let method: string;
+  let rest: string;
+
+  if (did.startsWith('did:webvh:')) {
+    method = 'webvh';
+    rest = did.slice('did:webvh:'.length);
+  } else if (did.startsWith('did:web:')) {
+    method = 'web';
+    rest = did.slice('did:web:'.length);
+  } else {
+    throw new DidParseError(did, 'unsupported DID method for URL conversion');
+  }
+
+  const filename = method === 'webvh' ? 'did.jsonl' : 'did.json';
+  const parts = rest.split(':');
+  const domain = decodeURIComponent(parts[0]);
+  const pathParts = parts.slice(1).map(decodeURIComponent);
+
+  if (pathParts.length === 0) {
+    return `https://${domain}/.well-known/${filename}`;
+  }
+  return `https://${domain}/${pathParts.join('/')}/${filename}`;
+}
+
+/**
+ * Parse the DID method from a DID string (e.g. "did:web:example.com" -> "web").
+ *
+ * Only methods listed in DID_METHOD_BY_URI are supported.
+ */
+export function parseDidMethod(did: string): string {
+  const match = did.match(/^did:([a-z0-9]+):.+/);
+  if (!match) {
+    throw new DidParseError(did, 'invalid format — expected did:<method>:<identifier>');
+  }
+  const method = match[1];
+  if (!(method in DID_METHOD_BY_URI)) {
+    throw new DidMethodNotSupportedError(method);
+  }
+  return method;
+}
+
+/**
+ * Normalise a DID alias to a URL-safe path segment per did:web spec.
+ *
+ * - Lowercases the input
+ * - Replaces whitespace with hyphens
+ * - Strips characters that aren't lowercase alphanumeric or hyphens
+ * - Collapses consecutive hyphens
+ * - Trims leading/trailing hyphens
+ * - Throws if the result is empty
+ */
+export function normaliseDidWebAlias(alias: string): string {
+  const normalised = alias
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+
+  if (!normalised) {
+    throw new DidInputError(`alias "${alias}" produces an empty identifier after normalisation`);
+  }
+
+  return normalised;
+}
+
+/**
+ * Light normalisation for self-managed DID aliases that include a domain.
+ *
+ * Unlike `normaliseDidWebAlias` (which strips dots and colons for single-segment
+ * aliases), this preserves dots and colons because self-managed aliases include
+ * the full domain and DID path.
+ *
+ * - Lowercases the input
+ * - Trims whitespace
+ * - Strips whitespace adjacent to structural characters (dots, colons, hyphens)
+ * - Replaces remaining whitespace with hyphens
+ * - Keeps alphanumeric characters, dots, colons, and hyphens
+ * - Collapses consecutive hyphens
+ * - Trims leading/trailing hyphens
+ * - Throws if the result is empty
+ */
+export function normaliseSelfManagedAlias(alias: string): string {
+  // Split on structural characters, trim each segment, then rejoin.
+  // This avoids polynomial regex when stripping whitespace around delimiters.
+  const trimmed = alias.toLowerCase().trim();
+  const tokens = trimmed.split(/([:.-])/);
+  const rejoined = tokens.map((t) => t.trim()).join('');
+
+  const normalised = rejoined
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9.:-]/g, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+
+  if (!normalised) {
+    throw new DidInputError(`alias "${alias}" produces an empty identifier after normalisation`);
+  }
+
+  return normalised;
+}

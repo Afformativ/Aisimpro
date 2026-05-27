@@ -229,6 +229,13 @@ class PersistentDatabase {
     return document;
   }
 
+  updateDocument(document) {
+    this.documents.set(document.documentId, document);
+    this.saveCollection('documents', this.documents);
+    this.logAction('UPDATE', 'Document', document.documentId, document);
+    return document;
+  }
+
   getDocument(documentId) {
     return this.documents.get(documentId) || null;
   }

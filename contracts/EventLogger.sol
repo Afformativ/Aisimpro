@@ -96,4 +96,55 @@ contract EventLogger {
             emit HashAnchored(ids[i], hashes[i], block.timestamp, msg.sender);
         }
     }
+
+    // ================================================================
+    // Merkle-root anchoring (batched certificate verification)
+    // ================================================================
+
+    /// @notice Emitted when a Merkle root is anchored on-chain
+    event RootAnchored(
+        bytes32 indexed merkleRoot,
+        bytes32 indexed batchIdHash,
+        string  scopeType,
+        string  scopeId,
+        uint256 timestamp,
+        address indexed sender,
+        bytes32 prevChainedRoot,
+        bytes32 chainedRoot
+    );
+
+    /**
+     * @notice Anchor a Merkle root representing a batch of certificate hashes
+     * @param merkleRoot       The Merkle root of the certificate hash tree
+     * @param batchIdHash      Keccak256 of the off-chain batch ID
+     * @param scopeType        Closure scope type ("shipment", "day", "lot")
+     * @param scopeId          Closure scope identifier
+     * @param schemaVersion    Certificate schema version string
+     * @param treeAlgo         Tree algorithm identifier (e.g. "sha256-binary-v1")
+     * @param prevChainedRoot  Previous chained root (0x0 if first batch)
+     * @param chainedRoot      H(prevChainedRoot || merkleRoot)
+     */
+    function anchorRoot(
+        bytes32 merkleRoot,
+        bytes32 batchIdHash,
+        string  calldata scopeType,
+        string  calldata scopeId,
+        string  calldata schemaVersion,
+        string  calldata treeAlgo,
+        bytes32 prevChainedRoot,
+        bytes32 chainedRoot
+    ) external {
+        emit RootAnchored(
+            merkleRoot,
+            batchIdHash,
+            scopeType,
+            scopeId,
+            block.timestamp,
+            msg.sender,
+            prevChainedRoot,
+            chainedRoot
+        );
+        // Also emit the generic HashAnchored for backwards-compatible indexing
+        emit HashAnchored(batchIdHash, merkleRoot, block.timestamp, msg.sender);
+    }
 }

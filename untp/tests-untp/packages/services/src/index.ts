@@ -1,0 +1,184 @@
+export * from './types/index.js';
+export * from './utils/index.js';
+export type {
+  CredentialPayload,
+  CredentialIssuer,
+  CredentialSubject,
+  CredentialStatus,
+  IdentifierScheme,
+  EnvelopedVerifiableCredential,
+  UNTPVerifiableCredential,
+  RenderMethod,
+  VerifyResult,
+  IVerifiableCredentialService,
+} from './verifiable-credential/types.js';
+export * from './did-manager/types.js';
+export {
+  didDocumentSchema,
+  verificationMethodSchema,
+  didResponseSchema,
+  verificationCheckSchema,
+  verificationResultResponseSchema,
+  didDocumentResponseSchema,
+} from './did-manager/schemas.js';
+export {
+  didWebToUrl,
+  parseDidMethod,
+  normaliseDidWebAlias,
+  normaliseSelfManagedAlias,
+} from './did-manager/common/utils.js';
+// Encryption
+export { AesGcmEncryptionAdapter } from './encryption/adapters/aes-gcm/aes-gcm.adapter.js';
+export { EncryptionAlgorithm, assertPermittedAlgorithm } from './encryption/encryption.interface.js';
+export type { EncryptedEnvelope, IEncryptionService } from './encryption/encryption.interface.js';
+export { computeHash, HashAlgorithm } from './encryption/compute-hash.js';
+export { decryptCredential } from './encryption/decrypt-credential.js';
+export type { DecryptionParams } from './encryption/decrypt-credential.js';
+export { isEncryptedEnvelope } from './encryption/is-encrypted-envelope.js';
+export type { IKeyGenerator, IKeyStore } from './key-provider/key-provider.interface.js';
+export { LocalKeyGenerator } from './key-provider/adapters/local/local.adapter.js';
+
+// Logging
+export type { LoggerService, LogContext, LoggerConfig, LogLevel } from './logging/types.js';
+export { createLogger } from './logging/factory.js';
+// correlation-context uses async_hooks (Node.js-only) — import from '@uncefact/untp-ri-services/logging' in server code
+
+// Registry
+export { ServiceType, AdapterType } from './registry/types.js';
+export { BaseServiceAdapter } from './registry/base-adapter.js';
+export { adapterRegistry } from './registry/registry.js';
+export { getSensitiveFields } from './registry/common/get-sensitive-fields.js';
+export type { AdapterRegistryEntry, AdapterRegistry } from './registry/types.js';
+export { maskInstanceConfig } from './registry/common/mask-instance-config.js';
+export { serviceInstanceResponseSchema } from './registry/schemas.js';
+
+// Config schemas
+export { vckitDidConfigSchema, vckitDidSensitiveFields } from './did-manager/adapters/vckit/vckit-did.schema.js';
+export type { VCKitDidConfig } from './did-manager/adapters/vckit/vckit-did.schema.js';
+
+// Service errors
+export { ServiceError } from './errors.js';
+export {
+  DidError,
+  DidConfigError,
+  DidMethodNotSupportedError,
+  DidInputError,
+  DidCreateError,
+  DidConflictError,
+  DidDeleteError,
+  DidDocumentFetchError,
+  DidParseError,
+} from './did-manager/errors.js';
+
+// IDR service types and constants
+export { IDR_SERVICE_TYPE, AccessRole } from './identity-resolver/types.js';
+export type {
+  RFC9264Link,
+  UNTPLinkExtensions,
+  Link,
+  LinkRegistration,
+  PublishLinksOptions,
+  ResolverDescription,
+  LinkType as IdrLinkType,
+  IIdentityResolverService,
+} from './identity-resolver/types.js';
+export {
+  IdrError,
+  IdrLinkNotFoundError,
+  IdrPublishError,
+  IdrLinkFetchError,
+  IdrLinkUpdateError,
+  IdrLinkDeleteError,
+  IdrResolverFetchError,
+  IdrLinkTypesFetchError,
+  IdrSchemeRegistrationError,
+} from './identity-resolver/errors.js';
+export { PYX_IDR_ADAPTER_TYPE } from './identity-resolver/adapters/pyx/pyx-idr.adapter.js';
+export type { PyxIdrConfig } from './identity-resolver/adapters/pyx/pyx-idr.schema.js';
+export { pyxIdrConfigSchema, pyxIdrSensitiveFields } from './identity-resolver/adapters/pyx/pyx-idr.schema.js';
+
+// IDR API response schemas
+export {
+  registrarSchema,
+  schemeQualifierSchema,
+  identifierSchemeSchema,
+  identifierSchema,
+  linkRegistrationSchema,
+} from './identity-resolver/schemas.js';
+
+// Schema cache and validation
+export { SchemaFetchError, fetchSchema, clearSchemaCache, getSchemaCache } from './schema/index.js';
+export { SchemaValidationError, validateAgainstSchemas } from './schema/index.js';
+export type { CachedSchema } from './schema/index.js';
+
+// JSON-LD validation
+export { JsonLdValidationError, validateJsonLd, type ValidateJsonLdOptions } from './jsonld-validation/index.js';
+
+// Shared API response schemas
+export { errorResponseSchema } from './schemas.js';
+
+// IDR verification utilities
+export type { VerificationWarning } from './identity-resolver/common/idr-verification.js';
+export { verifyResolverDescription, verifyUntpLinkTypes } from './identity-resolver/common/idr-verification.js';
+
+// IDR publish utilities
+export type { BuildPublishLinksOptions } from './identity-resolver/common/publish-credential.js';
+export { buildPublishLinks } from './identity-resolver/common/publish-credential.js';
+
+// Storage service types and constants
+export { STORAGE_SERVICE_TYPE } from './storage/types.js';
+export type { IStorageService, StorageRecord } from './storage/types.js';
+export { StorageDeleteError, StorageError, StoragePayloadError, StorageStoreError } from './storage/errors.js';
+export { UNCEFACT_STORAGE_ADAPTER_TYPE } from './storage/adapters/uncefact/uncefact-storage.adapter.js';
+export type { UncefactStorageConfig } from './storage/adapters/uncefact/uncefact-storage.schema.js';
+export {
+  uncefactStorageConfigSchema,
+  uncefactStorageSensitiveFields,
+} from './storage/adapters/uncefact/uncefact-storage.schema.js';
+
+// VC service types and constants
+export { VC_SERVICE_TYPE } from './verifiable-credential/types.js';
+export {
+  VcServiceError,
+  VcSignError,
+  VcVerifyError,
+  VcDecodeError,
+  VcCredentialStatusError,
+} from './verifiable-credential/errors.js';
+export { VCKIT_VC_ADAPTER_TYPE } from './verifiable-credential/adapters/vckit/vckit-verifiable-credential.adapter.js';
+export type { VCKitVerifiableCredentialConfig } from './verifiable-credential/adapters/vckit/vckit-verifiable-credential.schema.js';
+export {
+  vckitVerifiableCredentialConfigSchema,
+  vckitVerifiableCredentialSensitiveFields,
+} from './verifiable-credential/adapters/vckit/vckit-verifiable-credential.schema.js';
+export { decodeCredential } from './verifiable-credential/common/decode-credential.js';
+
+// CVC parsing
+export type {
+  ICvcParser,
+  ParsedCvcCatalogue,
+  ParsedCvcScheme,
+  ParsedCvcProfile,
+  ParsedCvcCriterion,
+} from './cvc-parsing/index.js';
+export { getCvcParser, SUPPORTED_CVC_VERSIONS } from './cvc-parsing/index.js';
+export { CvcV070Parser } from './cvc-parsing/index.js';
+
+// ── Data model bridges ──────────────────────────────────────────────────────
+export type {
+  IDataModelBridge,
+  ExtractedRefs,
+  ConformityRefs,
+  ConformityInput,
+  CredentialSubject as BridgeCredentialSubject,
+  DataModelConfig,
+  BridgeEntities,
+  OrganisationEntity,
+  FacilityEntity,
+  ProductEntity,
+  ProductLevel,
+  EntityIdentifier,
+  UntpLocation,
+} from './data-model-bridges/index.js';
+
+export { getBridge, buildContextAndTypes } from './data-model-bridges/index.js';

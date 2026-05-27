@@ -124,7 +124,7 @@ export default function BatchDetail() {
   if (error) return <div className="error">Error: {(error as Error).message}</div>;
   if (!chainOfCustody) return <div className="error">Batch not found</div>;
 
-  const { batch, originFacility, timeline, verificationStatus } = chainOfCustody;
+  const { batch, originFacility, timeline, verificationStatus, allDocuments } = chainOfCustody;
 
   return (
     <div className="page">
@@ -134,7 +134,7 @@ export default function BatchDetail() {
             <ArrowLeft size={20} />
           </Link>
           <div>
-            <h1>Batch {batch.batchId.slice(0, 8)}...</h1>
+            <h1>{batch.referenceNumber || `Batch ${batch.batchId.slice(0, 8)}...`}</h1>
             <p className="subtitle">Origin: {originFacility.name}</p>
           </div>
         </div>
@@ -196,6 +196,11 @@ export default function BatchDetail() {
           <div>
             <div className="summary-label">Verification</div>
             <div className="summary-value">{verificationStatus.status}</div>
+            {verificationStatus.message && (
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                {verificationStatus.message}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -407,6 +412,78 @@ export default function BatchDetail() {
           )}
         </div>
       )}
+
+      {/* Documents Section */}
+      <div className="card">
+        <h3>📄 Attached Documents</h3>
+        {allDocuments && allDocuments.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '12px', marginTop: '16px' }}>
+            {allDocuments.map((doc: any) => (
+              <div 
+                key={doc.id}
+                style={{
+                  padding: '16px',
+                  background: 'var(--bg-card-hover)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                  <span style={{ 
+                    fontSize: '13px',
+                    padding: '4px 8px',
+                    background: 'var(--secondary-light)',
+                    borderRadius: '4px',
+                    color: 'var(--primary)',
+                  }}>
+                    {doc.type}
+                  </span>
+                  <span style={{ 
+                    fontSize: '11px',
+                    padding: '4px 8px',
+                    background: doc.confidentiality === 'Confidential' ? 'var(--danger)' : 
+                               doc.confidentiality === 'Restricted' ? 'var(--warning)' : 'var(--success)',
+                    borderRadius: '4px',
+                    color: 'white',
+                    fontWeight: 600,
+                  }}>
+                    {doc.confidentiality}
+                  </span>
+                </div>
+                <div style={{ fontSize: '14px', fontWeight: 500, marginBottom: '8px', wordBreak: 'break-word' }}>
+                  {doc.fileName}
+                </div>
+                <div style={{ 
+                  fontSize: '11px', 
+                  fontFamily: 'monospace', 
+                  color: 'var(--text-muted)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  <Hash size={10} style={{ display: 'inline', marginRight: '4px' }} />
+                  {doc.hash}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ 
+            padding: '32px',
+            textAlign: 'center',
+            color: 'var(--text-muted)',
+            background: 'var(--bg-card-hover)',
+            borderRadius: 'var(--radius-sm)',
+            marginTop: '16px',
+          }}>
+            <FileText size={48} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+            <p>No documents attached to this batch</p>
+            <p style={{ fontSize: '13px', marginTop: '8px' }}>
+              Documents can be attached when creating a batch or during lifecycle events
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Chain of Custody Timeline */}
       <div className="card">

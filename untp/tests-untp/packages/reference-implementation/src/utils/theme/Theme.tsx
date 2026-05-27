@@ -1,0 +1,22 @@
+import { createTheme } from '@mui/material';
+interface IStyles {
+  primaryColor: string;
+  secondaryColor: string;
+  tertiaryColor: string;
+  menuIconColor?: string;
+}
+
+const ThemeSettings = (styles: Partial<IStyles> = {}) => {
+  const baseMode = {
+    palette: {
+      primary: {
+        main: styles?.primaryColor ?? '#ffffff',
+        contrastText: styles?.tertiaryColor ?? '#ffffff', // text color, intended to contrast with main
+      },
+    },
+  };
+
+  const theme = createTheme(baseMode);
+  return theme;
+};
+export { ThemeSettings };

@@ -494,4 +494,187 @@ program
     }
   });
 
+// ============ MERKLE ANCHORING COMMANDS ============
+
+program
+  .command('merkle:status')
+  .description('Show Merkle anchoring status and metrics')
+  .action(async () => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED. Set MERKLE_ANCHORING_ENABLED=true to enable.');
+      return;
+    }
+    const merkle = await import('./services/merkle/index.js');
+    const metrics = merkle.getMetrics();
+    printHeader('Merkle Anchoring Status');
+    console.log(chalk.green('  ENABLED'));
+    console.log(`  Certificate packages:  ${metrics.totalCertificatePackages}`);
+    console.log(`  Anchor batches:        ${metrics.totalAnchorBatches}`);
+    console.log(`    Open:                ${metrics.openBatches}`);
+    console.log(`    Anchored:            ${metrics.anchoredBatches}`);
+    console.log(`    Failed:              ${metrics.failedBatches}`);
+    console.log(`  Inclusion proofs:      ${metrics.totalInclusionProofs}`);
+    console.log(`  Avg certs/batch:       ${metrics.avgCertificatesPerBatch}`);
+  });
+
+program
+  .command('merkle:batches')
+  .description('List all Merkle anchor batches')
+  .action(async () => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED.');
+      return;
+    }
+    const merkle = await import('./services/merkle/index.js');
+    const batches = merkle.getAllAnchorBatches();
+    if (batches.length === 0) {
+      printInfo('No Merkle anchor batches found.');
+      return;
+    }
+    const table = new Table({
+      head: [chalk.cyan('Batch ID'), chalk.cyan('Scope'), chalk.cyan('Leaves'), chalk.cyan('Status'), chalk.cyan('Root')]
+    });
+    batches.forEach(b => {
+      table.push([
+        b.batchId.substring(0, 12) + '...',
+        `${b.scopeType}:${b.scopeId.substring(0, 12)}`,
+        b.leafCount,
+        b.status,
+        b.merkleRoot ? b.merkleRoot.substring(0, 16) + '...' : '-'
+      ]);
+    });
+    console.log(table.toString());
+  });
+
+program
+  .command('merkle:close <batchId>')
+  .description('Close a Merkle anchor batch and compute root')
+  .action(async (batchId) => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED.');
+      return;
+    }
+    try {
+      const merkle = await import('./services/merkle/index.js');
+      const result = merkle.closeBatch(batchId);
+      printSuccess(`Batch closed: ${result.anchorBatch.batchId}`);
+      printInfo(`Merkle root: ${result.anchorBatch.merkleRoot}`);
+      printInfo(`Leaf count: ${result.anchorBatch.leafCount}`);
+      printInfo(`Proofs generated: ${result.proofCount}`);
+    } catch (error) {
+      printError(error.message);
+    }
+  });
+
+program
+  .command('merkle:anchor')
+  .description('Anchor all closed Merkle batches on-chain')
+  .action(async () => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED.');
+      return;
+    }
+    try {
+      const merkle = await import('./services/merkle/index.js');
+      const results = await merkle.processUnanchoredBatches();
+      if (results.length === 0) {
+        printInfo('No closed batches to anchor.');
+        return;
+      }
+      results.forEach(r => {
+        if (r.success) {
+          printSuccess(`Batch ${r.batchId}: anchored (tx ${r.txHash?.substring(0, 16)}...)`);
+        } else {
+          printError(`Batch ${r.batchId}: FAILED - ${r.error}`);
+        }
+      });
+    } catch (error) {
+      printError(error.message);
+    }
+  });
+
+program
+  .command('merkle:verify <certificateId>')
+  .description('Verify a certificate against its Merkle anchor')
+  .action(async (certificateId) => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED.');
+      return;
+    }
+    try {
+      const merkle = await import('./services/merkle/index.js');
+      const result = await merkle.verifyCertificate({ certificateId });
+      printHeader(`Verification: ${certificateId.substring(0, 16)}...`);
+      
+      const verdictColor = result.verdict === 'VERIFIED' ? 'green' :
+                           result.verdict === 'PROOF_VALID_NOT_ANCHORED' ? 'yellow' : 'red';
+      console.log(`  Verdict:          ${chalk[verdictColor](result.verdict)}`);
+      console.log(`  Hash match:       ${result.canonicalHashMatch === null ? 'n/a' : result.canonicalHashMatch}`);
+      console.log(`  Proof valid:      ${result.proofValid}`);
+      console.log(`  On-chain anchor:  ${result.onChainAnchorPresent}`);
+      if (result.anchorTxHash) {
+        console.log(`  TX hash:          ${result.anchorTxHash.substring(0, 24)}...`);
+      }
+      if (result.details.length > 0) {
+        console.log('\n  Details:');
+        result.details.forEach(d => console.log(`    - ${d}`));
+      }
+    } catch (error) {
+      printError(error.message);
+    }
+  });
+
+program
+  .command('merkle:proof <certificateId>')
+  .description('Export verification package for external verifier')
+  .action(async (certificateId) => {
+    if (process.env.MERKLE_ANCHORING_ENABLED !== 'true') {
+      printWarning('Merkle anchoring is DISABLED.');
+      return;
+    }
+    const merkle = await import('./services/merkle/index.js');
+    const pkg = merkle.exportVerificationPackage(certificateId);
+    if (!pkg) {
+      printError('Certificate or proof not found');
+      return;
+    }
+    console.log(JSON.stringify(pkg, null, 2));
+  });
+
+program
+  .command('merkle:verify-file <proofFile>')
+  .description('Verify a certificate from an exported proof JSON file')
+  .option('--rpc <url>', 'RPC URL for on-chain verification')
+  .action(async (proofFile, options) => {
+    try {
+      const fs = await import('fs');
+      const data = JSON.parse(fs.readFileSync(proofFile, 'utf-8'));
+      const merkle = await import('./services/merkle/index.js');
+
+      // Re-parse canonical JSON to get the certificate payload
+      const certPayload = JSON.parse(data.certificatePackage.canonicalJson);
+
+      const result = merkle.verifyStandalone({
+        certificatePayload: certPayload.certificatePayload,
+        certificateId: data.certificatePackage.certificateId,
+        docHashList: certPayload.docHashList || [],
+        schemaVersion: certPayload.schemaVersion || '1.0.0',
+        issuerKeyId: certPayload.issuerKeyId || '',
+        proof: data.inclusionProof,
+        merkleRoot: data.batchMetadata.merkleRoot,
+      });
+
+      printHeader('Standalone Verification');
+      const verdictColor = result.verdict === 'VERIFIED' ? 'green' : 'red';
+      console.log(`  Verdict:       ${chalk[verdictColor](result.verdict)}`);
+      console.log(`  Hash match:    ${result.canonicalHashMatch}`);
+      console.log(`  Proof valid:   ${result.proofValid}`);
+      if (data.anchor?.txHash) {
+        console.log(`  Anchor TX:     ${data.anchor.txHash.substring(0, 24)}...`);
+      }
+    } catch (error) {
+      printError(error.message);
+    }
+  });
+
 program.parse();

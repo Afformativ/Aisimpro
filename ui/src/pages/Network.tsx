@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { Network, CheckCircle, AlertCircle, Wifi, Server, Globe } from 'lucide-react';
+import { Network, CheckCircle, AlertCircle, Wifi, Server, Globe, Pickaxe, ExternalLink } from 'lucide-react';
 import * as api from '../services/api';
+import type { TraceabilityStatus } from '../types';
 
 const NETWORKS = [
   {
@@ -30,11 +31,22 @@ const NETWORKS = [
   },
 ];
 
+function shortAddr(addr: string | null | undefined) {
+  if (!addr) return '—';
+  return addr.length > 14 ? `${addr.slice(0, 8)}…${addr.slice(-4)}` : addr;
+}
+
 export default function NetworkPage() {
   const { data: health, isLoading, error } = useQuery({
     queryKey: ['health'],
     queryFn: api.getHealth,
     refetchInterval: 10000,
+  });
+
+  const { data: traceability } = useQuery<TraceabilityStatus>({
+    queryKey: ['traceability-status'],
+    queryFn: api.getTraceabilityStatus,
+    refetchInterval: 15000,
   });
 
   return (
@@ -105,6 +117,61 @@ export default function NetworkPage() {
               Each event will have a verifiable transaction hash.
             </p>
           </div>
+        )}
+      </div>
+
+      {/* GoldSilverTraceability contract status */}
+      <div className="card status-card">
+        <div className="status-header">
+          <h3><Pickaxe size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} />GoldSilverTraceability Contract</h3>
+        </div>
+        {traceability ? (
+          traceability.live ? (
+            <div className="status-content connected">
+              <CheckCircle size={48} />
+              <div>
+                <h4>Live — On-Chain</h4>
+                <div className="status-details">
+                  <span className="mode-badge live">Live Blockchain</span>
+                  <span className="timestamp">Network: {traceability.network}</span>
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.9rem' }}>
+                  <div>
+                    <strong>Contract:</strong>{' '}
+                    <code>{shortAddr(traceability.contractAddress)}</code>
+                    {traceability.explorerUrl && traceability.contractAddress && (
+                      <a
+                        href={`${traceability.explorerUrl}/address/${traceability.contractAddress}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ marginLeft: 8 }}
+                      >
+                        <ExternalLink size={12} /> View
+                      </a>
+                    )}
+                  </div>
+                  <div><strong>Wallet:</strong> <code>{shortAddr(traceability.wallet)}</code></div>
+                  <div>
+                    <strong>Records:</strong>{' '}
+                    {traceability.oreCount} ores · {traceability.barCount} bars · {traceability.productCount} products
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="status-content" style={{ gap: 16 }}>
+              <AlertCircle size={48} color="#f59e0b" />
+              <div>
+                <h4>Simulation Mode</h4>
+                <p style={{ color: 'var(--text-dim)', margin: '4px 0 0' }}>
+                  No <code>TRACEABILITY_CONTRACT_ADDRESS</code> configured — running in-memory simulation.
+                  Deploy <code>GoldSilverTraceability.sol</code> and set the env var to go live.
+                </p>
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="status-content" style={{ color: 'var(--text-dim)' }}>Loading…</div>
         )}
       </div>
 

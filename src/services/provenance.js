@@ -2,6 +2,10 @@
  * Provenance Service
  * Core business logic for batch creation, events, and verification
  * Implements the flow: Create Batch → Record Events → Anchor Hashes → Verify
+ * 
+ * When MERKLE_ANCHORING_ENABLED=true, per-event on-chain writes are replaced
+ * by batched Merkle-root anchoring.  The legacy path is preserved behind the
+ * feature flag for backward compatibility.
  */
 
 // Use database selector to choose implementation
@@ -19,6 +23,21 @@ import {
   EventType,
   BatchStatus
 } from '../models/index.js';
+
+// Merkle anchoring (lazy-loaded only when enabled)
+let merkle = null;
+function getMerkle() {
+  if (!merkle) {
+    // Dynamic import resolved at first access (sync – module already loaded)
+    merkle = import('./merkle/index.js');
+  }
+  return merkle;
+}
+
+/** @returns {boolean} */
+function isMerkleEnabled() {
+  return process.env.MERKLE_ANCHORING_ENABLED === 'true';
+}
 
 class ProvenanceService {
   
@@ -70,6 +89,10 @@ class ProvenanceService {
 
   getDocument(documentId) {
     return db.getDocument(documentId);
+  }
+
+  getAllDocuments() {
+    return db.getAllDocuments();
   }
 
   getDocumentsForBatch(batchId) {
@@ -126,9 +149,39 @@ class ProvenanceService {
     event.eventPayloadHash = computeEventHash(event);
     const batchHash = computeBatchHash(batch);
     
-    // Anchor to blockchain
-    const batchAnchor = await anchoringService.anchorBatch(batch.batchId, batchHash);
-    const eventAnchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    let batchAnchor, eventAnchor, merkleResult = null;
+
+    if (isMerkleEnabled()) {
+      // ---- Merkle path: queue certificate into Merkle batch ----
+      const m = await getMerkle();
+      const docHashes = documentIds.map(docId => {
+        const doc = db.getDocument(docId);
+        return doc?.sha256Hash || '';
+      }).filter(Boolean);
+
+      merkleResult = m.ingestCertificate({
+        certificateId: event.eventId,
+        certificateJson: {
+          batchId: batch.batchId,
+          event,
+          batchHash,
+        },
+        docHashList: docHashes,
+        shipmentId: batch.batchId,
+        lotId: batch.externalReferenceNumber,
+        issuerKeyId: batch.ownerPartyId || 'system',
+        schemaVersion: '1.0.0',
+        scopeType: 'shipment',
+      });
+
+      // Simulated anchors (no per-item on-chain write)
+      batchAnchor = { txHash: null, simulated: true, merkle: true, batchId: merkleResult.anchorBatch.batchId };
+      eventAnchor = { txHash: null, simulated: true, merkle: true, certificateId: event.eventId };
+    } else {
+      // ---- Legacy path: per-item on-chain anchoring ----
+      batchAnchor = await anchoringService.anchorBatch(batch.batchId, batchHash);
+      eventAnchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    }
     
     event.onChainTxHash = eventAnchor.txHash;
     batch.eventIds.push(event.eventId);
@@ -137,20 +190,27 @@ class ProvenanceService {
     db.saveBatch(batch);
     db.saveEvent(event);
     
-    // Link documents to batch
-    documentIds.forEach(docId => {
-      const doc = db.getDocument(docId);
-      if (doc) {
-        doc.relatedBatchId = batch.batchId;
-        doc.relatedEventId = event.eventId;
-      }
-    });
+    // Link documents to batch (if supported by database layer)
+    console.log('📎 Linking documents:', { documentIds, hasUpdateMethod: typeof db.updateDocument === 'function' });
+    if (typeof db.updateDocument === 'function') {
+      documentIds.forEach(docId => {
+        const doc = db.getDocument(docId);
+        console.log(`  - Document ${docId}: ${doc ? 'found' : 'NOT FOUND'}`);
+        if (doc) {
+          doc.relatedBatchId = batch.batchId;
+          doc.relatedEventId = event.eventId;
+          db.updateDocument(doc);
+          console.log(`    ✓ Linked to batch ${batch.batchId}`);
+        }
+      });
+    }
     
     return {
       batch,
       event,
       batchAnchor,
-      eventAnchor
+      eventAnchor,
+      ...(merkleResult ? { merkle: merkleResult } : {}),
     };
   }
 
@@ -175,6 +235,38 @@ class ProvenanceService {
   // ============ EVENT RECORDING ============
   
   /**
+   * Internal helper: anchor an event either via Merkle pipeline or legacy path.
+   */
+  async _anchorEvent(event, batch) {
+    if (isMerkleEnabled()) {
+      const m = await getMerkle();
+      const docHashes = (event.references || []).map(docId => {
+        const doc = db.getDocument(docId);
+        return doc?.sha256Hash || '';
+      }).filter(Boolean);
+
+      const merkleResult = m.ingestCertificate({
+        certificateId: event.eventId,
+        certificateJson: { batchId: event.batchId, event },
+        docHashList: docHashes,
+        shipmentId: event.batchId,
+        lotId: batch?.externalReferenceNumber || null,
+        issuerKeyId: event.fromPartyId || event.toPartyId || 'system',
+        schemaVersion: '1.0.0',
+        scopeType: 'shipment',
+      });
+
+      return {
+        anchor: { txHash: null, simulated: true, merkle: true, certificateId: event.eventId },
+        merkle: merkleResult,
+      };
+    } else {
+      const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+      return { anchor, merkle: null };
+    }
+  }
+
+  /**
    * Record a Ship/Transfer custody event (FR 3.1.5)
    */
   async recordShipment(batchId, shipmentData) {
@@ -197,7 +289,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     // Update batch status
@@ -208,7 +300,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   /**
@@ -234,7 +326,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     // Update batch ownership
@@ -245,7 +337,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   /**
@@ -271,7 +363,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     // Update batch
@@ -283,7 +375,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   /**
@@ -309,7 +401,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     if (!batch.eventIds) batch.eventIds = [];
@@ -317,7 +409,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   /**
@@ -343,7 +435,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     // Update batch with final assay
@@ -354,7 +446,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   /**
@@ -378,7 +470,7 @@ class ProvenanceService {
     });
 
     event.eventPayloadHash = computeEventHash(event);
-    const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+    const { anchor, merkle: merkleResult } = await this._anchorEvent(event, batch);
     event.onChainTxHash = anchor.txHash;
 
     batch.status = BatchStatus.DISPUTE;
@@ -388,7 +480,7 @@ class ProvenanceService {
     await db.updateBatch(batch);
     await db.saveEvent(event);
 
-    return { event, anchor, batch };
+    return { event, anchor, batch, ...(merkleResult ? { merkle: merkleResult } : {}) };
   }
 
   // ============ VERIFICATION ============
@@ -403,7 +495,22 @@ class ProvenanceService {
     }
 
     const events = await db.getEventsByBatch(batchId);
-    const documents = await db.getDocumentsByBatch(batchId);
+    
+    // Get documents from batch's documentIds array (primary method)
+    let documents = [];
+    if (batch.documentIds && batch.documentIds.length > 0) {
+      documents = await Promise.all(
+        batch.documentIds.map(docId => db.getDocument(docId))
+      );
+      documents = documents.filter(Boolean); // Remove any null/undefined
+    }
+    
+    // Fallback: also check for documents linked via relatedBatchId
+    const linkedDocs = await db.getDocumentsByBatch(batchId);
+    // Merge and deduplicate
+    const docIds = new Set([...documents.map(d => d.documentId), ...linkedDocs.map(d => d.documentId)]);
+    documents = [...docIds].map(id => documents.find(d => d.documentId === id) || linkedDocs.find(d => d.documentId === id));
+    
     const credentials = await db.getCredentialsByBatch(batchId);
     const originFacility = await db.getFacility(batch.originFacilityId);
     const currentOwner = await db.getParty(batch.ownerPartyId);
@@ -555,15 +662,90 @@ class ProvenanceService {
       return { status: 'INCOMPLETE', message: 'Missing creation event' };
     }
     
-    if (!hasDocuments) {
-      return { status: 'INCOMPLETE', message: 'No supporting documents attached' };
-    }
-    
     if (!allEventsAnchored) {
-      return { status: 'PARTIAL', message: 'Some events not yet anchored on blockchain' };
+      return { status: 'PARTIAL', message: `${documents.length} doc(s), some events not yet anchored` };
     }
     
-    return { status: 'VERIFIED', message: 'All events recorded and anchored' };
+    if (!hasDocuments) {
+      return { status: 'VERIFIED', message: 'All events anchored (no documents)' };
+    }
+    
+    return { status: 'VERIFIED', message: `All events anchored with ${documents.length} doc(s)` };
+  }
+
+  // ============ MERKLE ANCHORING (gated by MERKLE_ANCHORING_ENABLED) ============
+
+  /**
+   * Close a Merkle anchor batch and compute root + proofs.
+   * @param {string} merkleBatchId - AnchorBatch ID
+   */
+  async closeMerkleBatch(merkleBatchId, userId = 'system') {
+    if (!isMerkleEnabled()) throw new Error('Merkle anchoring not enabled');
+    const m = await getMerkle();
+    return m.closeBatch(merkleBatchId, userId);
+  }
+
+  /**
+   * Close all open Merkle batches for a given scope (e.g., shipment ID).
+   */
+  async closeMerkleBatchesByScope(scopeId, userId = 'system') {
+    if (!isMerkleEnabled()) throw new Error('Merkle anchoring not enabled');
+    const m = await getMerkle();
+    return m.closeBatchesByScope(scopeId, userId);
+  }
+
+  /**
+   * Anchor all closed-but-unanchored Merkle batches on-chain.
+   */
+  async anchorMerkleBatches() {
+    if (!isMerkleEnabled()) throw new Error('Merkle anchoring not enabled');
+    const m = await getMerkle();
+    return m.processUnanchoredBatches();
+  }
+
+  /**
+   * Full verification of a certificate against its Merkle anchor.
+   */
+  async verifyMerkleCertificate(params) {
+    if (!isMerkleEnabled()) throw new Error('Merkle anchoring not enabled');
+    const m = await getMerkle();
+    return m.verifyCertificate(params);
+  }
+
+  /**
+   * Export a verification package for external auditors.
+   */
+  async exportMerkleProof(certificateId) {
+    if (!isMerkleEnabled()) throw new Error('Merkle anchoring not enabled');
+    const m = await getMerkle();
+    return m.exportVerificationPackage(certificateId);
+  }
+
+  /**
+   * Get Merkle metrics.
+   */
+  async getMerkleMetrics() {
+    if (!isMerkleEnabled()) return null;
+    const m = await getMerkle();
+    return m.getMetrics();
+  }
+
+  /**
+   * Get all anchor batches.
+   */
+  async getMerkleAnchorBatches() {
+    if (!isMerkleEnabled()) return [];
+    const m = await getMerkle();
+    return m.getAllAnchorBatches();
+  }
+
+  /**
+   * Get Merkle audit log.
+   */
+  async getMerkleAuditLog(entityId = null) {
+    if (!isMerkleEnabled()) return [];
+    const m = await getMerkle();
+    return m.getMerkleAuditLog(entityId);
   }
 
   // ============ CREDENTIALS ============

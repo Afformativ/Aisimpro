@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Package, Scale, MapPin, Truck, CheckCircle, AlertTriangle, Eye } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import * as api from '../services/api';
-import type { Batch, Party, Facility } from '../types';
+import type { Batch, Party, Facility, Document } from '../types';
 
 export default function Batches() {
   const [showForm, setShowForm] = useState(false);
+  const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { hasAnyRole } = useAuth();
 
   const { data: batches = [], isLoading, error } = useQuery({
     queryKey: ['batches'],
@@ -25,12 +28,18 @@ export default function Batches() {
     queryFn: api.getFacilities,
   });
 
+  const { data: documents = [] } = useQuery({
+    queryKey: ['documents'],
+    queryFn: api.getDocuments,
+  });
+
   const createMutation = useMutation({
     mutationFn: api.createBatch,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['batches'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setShowForm(false);
+      setSelectedDocuments([]);
       // Navigate to the newly created batch
       if (data.batch?.batchId) {
         navigate(`/batches/${data.batch.batchId}`);
@@ -50,7 +59,16 @@ export default function Batches() {
       purityPercent: formData.get('purityPercent') 
         ? parseFloat(formData.get('purityPercent') as string) 
         : undefined,
+      documentIds: selectedDocuments,
     });
+  };
+
+  const toggleDocument = (documentId: string) => {
+    setSelectedDocuments(prev => 
+      prev.includes(documentId)
+        ? prev.filter(id => id !== documentId)
+        : [...prev, documentId]
+    );
   };
 
   const getPartyName = (partyId: string) => {
@@ -83,10 +101,12 @@ export default function Batches() {
           <h1>Batches</h1>
           <p className="subtitle">Track gold batches through the supply chain</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-          <Plus size={20} />
-          Create Batch
-        </button>
+        {hasAnyRole('ISSUER', 'ADMIN', 'SUPERADMIN') && (
+          <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+            <Plus size={20} />
+            Create Batch
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -133,6 +153,51 @@ export default function Batches() {
                 <input type="number" id="purityPercent" name="purityPercent" step="0.01" min="0" max="100" placeholder="95.5" />
               </div>
             </div>
+            
+            {documents.length > 0 && (
+              <div className="form-section" style={{ marginTop: '24px', padding: '20px', background: 'var(--bg-card-hover)', borderRadius: 'var(--radius)' }}>
+                <label style={{ display: 'block', marginBottom: '12px', fontSize: '14px', fontWeight: 600 }}>📄 Attach Documents (optional)</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                  {documents.map((doc: Document) => (
+                    <label 
+                      key={doc.documentId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '12px 16px',
+                        background: selectedDocuments.includes(doc.documentId) ? 'var(--primary-dark)' : 'var(--secondary-light)',
+                        border: `2px solid ${selectedDocuments.includes(doc.documentId) ? 'var(--primary)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius-sm)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedDocuments.includes(doc.documentId)}
+                        onChange={() => toggleDocument(doc.documentId)}
+                        style={{ cursor: 'pointer', width: '18px', height: '18px' }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '14px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {doc.fileName}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          {doc.documentType}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                {selectedDocuments.length > 0 && (
+                  <div style={{ marginTop: '12px', padding: '8px 12px', background: 'var(--success)', color: 'white', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: 500 }}>
+                    ✓ {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} will be attached to this batch
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div className="form-actions">
               <button type="button" className="btn btn-secondary" onClick={() => setShowForm(false)}>
                 Cancel

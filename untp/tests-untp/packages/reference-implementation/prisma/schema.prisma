@@ -1,0 +1,591 @@
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../src/lib/prisma/generated"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("RI_DATABASE_URL")
+}
+
+enum DidType {
+  DEFAULT
+  MANAGED
+  SELF_MANAGED
+}
+
+enum DidMethod {
+  DID_WEB
+  DID_WEB_VH
+}
+
+enum DidStatus {
+  ACTIVE
+  INACTIVE
+  VERIFIED
+  UNVERIFIED
+  VERIFICATION_FAILED
+}
+
+enum ServiceType {
+  IDR
+  STORAGE
+  VC
+}
+
+enum AdapterType {
+  VCKIT
+  PYX_IDR
+  UNCEFACT_STORAGE
+}
+
+enum ProductLevel {
+  MODEL
+  BATCH
+  ITEM
+}
+
+enum RenderMethodType {
+  RenderTemplate2024
+  WebRenderingTemplate2022
+}
+
+/**
+ * Auth.js + Prisma adapter tables for OAuth + JWT sessions
+ */
+model User {
+  id              String    @id @default(cuid())
+  authProviderId  String?   @unique
+  name            String?
+  email           String?   @unique
+  emailVerified   DateTime?
+  image           String?
+  tenantId        String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts     Account[]
+  tenant       Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  access_token      String?
+  refresh_token     String?
+  expires_at        Int?
+  id_token          String?
+  token_type        String?
+  scope             String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Tenant {
+  id                 String   @id @default(cuid())
+  name               String
+  externalIdpGroupId String?  @unique
+  primaryColor       String?
+  secondaryColor String?
+  logo           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users              User[]
+  dids               Did[]
+  serviceInstances   ServiceInstance[]
+  registrars         Registrar[]
+  schemes            IdentifierScheme[]
+  identifiers        Identifier[]
+  linkRegistrations  LinkRegistration[]
+  organisations      OrganisationEntity[]
+  facilities         Facility[]
+  products             Product[]
+  credentials            Credential[]
+  dataModels             DataModel[]
+  renderTemplates        RenderTemplate[]
+  cvcCatalogues          CvcCatalogue[]
+
+  @@map("Tenant")
+}
+
+/**
+ * Stores issued verifiable credentials metadata
+ */
+model Credential {
+  id              String   @id @default(cuid())
+  tenantId        String
+  storageUri      String
+  hash            String
+  decryptionKey   String?
+  credentialType  String
+  isPublished     Boolean  @default(false)
+  organisationId  String?
+  facilityId      String?
+  productId       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  organisation    OrganisationEntity? @relation(fields: [organisationId], references: [id], onDelete: SetNull)
+  facility        Facility?           @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  product         Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+}
+
+/**
+ * DID records scoped to organisations (tenants).
+ * Supports three tiers: DEFAULT (system-wide), MANAGED, and SELF_MANAGED.
+ */
+model Did {
+  id             String    @id @default(cuid())
+  tenantId       String
+  did            String    @unique
+  type           DidType
+  method         DidMethod @default(DID_WEB)
+  name           String
+  description    String?
+  keyId          String
+  status         DidStatus @default(UNVERIFIED)
+  isDefault      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  serviceInstanceId String?
+  serviceInstance   ServiceInstance? @relation(fields: [serviceInstanceId], references: [id], onDelete: SetNull)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/**
+ * Registered service instances scoped to organisations (tenants).
+ * Each instance stores AES-256-GCM encrypted configuration for its adapter.
+ */
+model ServiceInstance {
+  id             String       @id @default(cuid())
+  tenantId       String
+  serviceType    ServiceType
+  adapterType    AdapterType
+  name           String
+  description    String?
+  config         String       // AES-256-GCM encrypted JSON blob
+  isPrimary      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dids           Did[]
+  registrars     Registrar[]        @relation("RegistrarIdr")
+  schemes        IdentifierScheme[] @relation("SchemeIdr")
+
+  @@index([tenantId, serviceType])
+}
+
+/**
+ * Registrars are organisations that operate identifier schemes.
+ * Scoped to tenants, with system defaults available to all.
+ */
+model Registrar {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  name                 String
+  namespace            String
+  url                  String?
+  idrServiceInstanceId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  idrServiceInstance ServiceInstance? @relation("RegistrarIdr", fields: [idrServiceInstanceId], references: [id], onDelete: SetNull)
+  schemes            IdentifierScheme[]
+
+  @@index([tenantId])
+}
+
+/**
+ * Identifier schemes define a type of identifier with validation rules.
+ * Each scheme belongs to a registrar and may have qualifier definitions.
+ */
+model IdentifierScheme {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  registrarId          String
+  name                 String
+  primaryKey           String
+  validationPattern    String
+  linkTemplate         String   // ISO 18975 link template, e.g. "/{primaryKey}/{value}"
+  idrServiceInstanceId String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  registrar          Registrar        @relation(fields: [registrarId], references: [id], onDelete: Cascade)
+  idrServiceInstance ServiceInstance? @relation("SchemeIdr", fields: [idrServiceInstanceId], references: [id], onDelete: SetNull)
+  qualifiers         SchemeQualifier[]
+  identifiers        Identifier[]
+
+  @@unique([registrarId, primaryKey, tenantId])
+  @@index([tenantId])
+}
+
+/**
+ * Qualifier definitions for identifier schemes (e.g. batch number, serial number).
+ * Each qualifier belongs to exactly one scheme.
+ */
+model SchemeQualifier {
+  id                String   @id @default(cuid())
+  schemeId          String
+  key               String
+  description       String
+  validationPattern String
+  order             Int      @default(0)  // Qualifier precedence in URI (ascending)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  scheme IdentifierScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+
+  @@unique([schemeId, key])
+}
+
+/**
+ * Actual identifier values validated against their scheme's pattern.
+ * Scoped to a single tenant (not shared with system defaults).
+ */
+model Identifier {
+  id        String   @id @default(cuid())
+  tenantId  String
+  schemeId  String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  scheme            IdentifierScheme   @relation(fields: [schemeId], references: [id], onDelete: Restrict)
+  linkRegistrations LinkRegistration[]
+
+  organisationPrimary     OrganisationEntity?              @relation("OrganisationPrimaryIdentifier")
+  facilityPrimary         Facility?                        @relation("FacilityPrimaryIdentifier")
+  productPrimary          Product?                         @relation("ProductPrimaryIdentifier")
+  organisationSecondaries OrganisationSecondaryIdentifier[] @relation("OrganisationSecondaryIdentifiers")
+  facilitySecondaries     FacilitySecondaryIdentifier[]     @relation("FacilitySecondaryIdentifiers")
+  productSecondaries      ProductSecondaryIdentifier[]      @relation("ProductSecondaryIdentifiers")
+
+  @@unique([schemeId, value])
+  @@index([tenantId])
+}
+
+/**
+ * Audit trail for links published to IDR services.
+ * Each record maps a local identifier to an IDR-assigned link.
+ */
+model LinkRegistration {
+  id            String   @id @default(cuid())
+  tenantId      String
+  identifierId  String
+  idrLinkId     String
+  linkType      String
+  targetUrl     String
+  mimeType      String
+  resolverUri   String
+  qualifierPath String?
+  publishedAt   DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  identifier Identifier @relation(fields: [identifierId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([identifierId])
+}
+
+/**
+ * Organisation entities representing trading partners, suppliers, or self.
+ * Distinct from the Tenant model which represents auth tenants.
+ */
+model OrganisationEntity {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  name                  String
+  description           String?
+  location              Json?
+  primaryIdentifierId   String?  @unique
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  tenant                Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  primaryIdentifier     Identifier? @relation("OrganisationPrimaryIdentifier", fields: [primaryIdentifierId], references: [id], onDelete: SetNull)
+
+  secondaryIdentifiers  OrganisationSecondaryIdentifier[]
+  credentials           Credential[]
+  facilities            Facility[]
+  products              Product[]
+
+  @@index([tenantId])
+}
+
+/**
+ * Physical locations (factories, farms, warehouses) operated by organisations.
+ */
+model Facility {
+  id                        String   @id @default(cuid())
+  tenantId                  String
+  name                      String
+  description               String?
+  location                  Json?
+  operatingOrganisationId   String?
+  primaryIdentifierId       String?  @unique
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  tenant                    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  operatingOrganisation     OrganisationEntity? @relation(fields: [operatingOrganisationId], references: [id], onDelete: SetNull)
+  primaryIdentifier         Identifier?         @relation("FacilityPrimaryIdentifier", fields: [primaryIdentifierId], references: [id], onDelete: SetNull)
+
+  secondaryIdentifiers      FacilitySecondaryIdentifier[]
+  credentials               Credential[]
+  products                  Product[]
+
+  @@index([tenantId])
+}
+
+/**
+ * Products at three levels per UNTP spec: Model, Batch, Serialised Item.
+ */
+model Product {
+  id                        String       @id @default(cuid())
+  tenantId                  String
+  name                      String
+  description               String?
+  level                     ProductLevel
+  batchNumber               String?
+  serialNumber              String?
+  parentId                  String?
+  producedByOrganisationId       String?
+  manufacturingFacilityId   String?
+  primaryIdentifierId       String?      @unique
+  createdAt                 DateTime     @default(now())
+  updatedAt                 DateTime     @updatedAt
+
+  tenant                    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent                    Product?            @relation("ProductHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children                  Product[]           @relation("ProductHierarchy")
+  producedByOrganisation         OrganisationEntity? @relation(fields: [producedByOrganisationId], references: [id], onDelete: SetNull)
+  manufacturingFacility     Facility?           @relation(fields: [manufacturingFacilityId], references: [id], onDelete: SetNull)
+  primaryIdentifier         Identifier?         @relation("ProductPrimaryIdentifier", fields: [primaryIdentifierId], references: [id], onDelete: SetNull)
+
+  secondaryIdentifiers      ProductSecondaryIdentifier[]
+  credentials               Credential[]
+
+  @@index([tenantId])
+  @@index([parentId])
+}
+
+model OrganisationSecondaryIdentifier {
+  organisationId  String
+  identifierId    String
+
+  organisation    OrganisationEntity @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  identifier      Identifier         @relation("OrganisationSecondaryIdentifiers", fields: [identifierId], references: [id], onDelete: Cascade)
+
+  @@id([organisationId, identifierId])
+}
+
+model FacilitySecondaryIdentifier {
+  facilityId    String
+  identifierId  String
+
+  facility      Facility   @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  identifier    Identifier @relation("FacilitySecondaryIdentifiers", fields: [identifierId], references: [id], onDelete: Cascade)
+
+  @@id([facilityId, identifierId])
+}
+
+model ProductSecondaryIdentifier {
+  productId     String
+  identifierId  String
+
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  identifier    Identifier @relation("ProductSecondaryIdentifiers", fields: [identifierId], references: [id], onDelete: Cascade)
+
+  @@id([productId, identifierId])
+}
+
+/**
+ * Data model configuration for both core UNTP types and tenant extensions.
+ * Stores schema URLs, context URLs, and version information.
+ * Extensions reference a parent config via the self-relation.
+ */
+model DataModel {
+  id               String    @id @default(cuid())
+  tenantId         String?
+  tenant           Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name             String
+  credentialType   String
+  version          String
+
+  isExtension      Boolean   @default(true)
+  parentConfigId   String?
+  parentConfig     DataModel?  @relation("ExtensionParent", fields: [parentConfigId], references: [id], onDelete: Cascade)
+  extensions       DataModel[] @relation("ExtensionParent")
+
+  schemaUrl        String
+  contextUrl       String
+  websiteUrl       String?
+
+  renderTemplates  RenderTemplate[]
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([credentialType, version, tenantId, isExtension, name])
+}
+
+/**
+ * Render template references for credential types.
+ * Stores storage URLs and hashes, with an isDefault flag for tenant default selection.
+ */
+model RenderTemplate {
+  id                       String                @id @default(cuid())
+  tenantId                 String
+  tenant                   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  dataModelId              String
+  dataModel                DataModel              @relation(fields: [dataModelId], references: [id], onDelete: Cascade)
+
+  name                     String
+  storageUrl               String
+  hash                     String
+  isDefault                Boolean   @default(false)
+  renderMethodType          RenderMethodType
+  storageServiceInstanceId  String?
+  storageExternalId         String?
+  storageBucket             String?
+  storageContentType        String?
+  inline                    Boolean?
+  mediaType                 String?
+  mediaQuery                String?
+
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@index([tenantId, dataModelId])
+}
+
+// ── CVC (Conformity Vocabulary Catalogue) models ────────────────────────────
+
+/**
+ * Root CVC document imported from a remote JSON-LD endpoint.
+ * Each catalogue contains one or more conformity schemes.
+ */
+model CvcCatalogue {
+  id          String   @id @default(cuid())
+  canonicalId String
+  name        String
+  sourceUrl   String
+  specVersion String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schemes     ConformityScheme[]
+
+  @@unique([canonicalId, tenantId])
+  @@index([tenantId])
+}
+
+/**
+ * Top-level assessment programme within a CVC (e.g. a sustainability assessment programme).
+ * Carries denormalised tenantId for query convenience.
+ */
+model ConformityScheme {
+  id          String   @id @default(cuid())
+  canonicalId String
+  name        String
+  slug        String
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenantId    String
+  catalogueId String
+  catalogue   CvcCatalogue @relation(fields: [catalogueId], references: [id], onDelete: Cascade)
+  profiles    ConformityProfile[]
+
+  @@unique([canonicalId, tenantId])
+  @@index([catalogueId])
+}
+
+/**
+ * A versioned assessment profile within a conformity scheme.
+ * Each profile references a set of criteria via the join table.
+ */
+model ConformityProfile {
+  id          String   @id @default(cuid())
+  canonicalId String
+  name        String
+  slug        String
+  version     String
+  status      String
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenantId    String
+  schemeId    String
+  scheme      ConformityScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  criteria    ProfileCriterion[]
+
+  @@unique([canonicalId, tenantId])
+  @@index([schemeId])
+}
+
+/**
+ * An individually versioned conformity requirement.
+ * Shared across profiles via the ProfileCriterion join table.
+ */
+model Criterion {
+  id              String   @id @default(cuid())
+  canonicalId     String
+  name            String
+  version         String
+  status          String
+  description     String?
+  conformityTopic String?
+  passThreshold   Json?
+  documentation   String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  tenantId        String
+  profiles        ProfileCriterion[]
+
+  @@unique([canonicalId, tenantId])
+  @@index([tenantId])
+}
+
+/**
+ * Join table linking profiles to criteria.
+ * Cascade on profile delete; restrict on criterion delete to prevent
+ * accidental removal of shared criteria.
+ */
+model ProfileCriterion {
+  id          String   @id @default(cuid())
+  profileId   String
+  criterionId String
+  profile     ConformityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  criterion   Criterion         @relation(fields: [criterionId], references: [id], onDelete: Restrict)
+
+  @@unique([profileId, criterionId])
+  @@index([criterionId])
+}

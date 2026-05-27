@@ -8,15 +8,27 @@ import type {
   ChainOfCustody,
   VerificationResult,
   AuditLogEntry,
+  TraceabilityStatus,
+  GasStatus,
+  OnChainOre,
+  OnChainBar,
+  OnChainProduct,
+  OnChainEvent,
 } from '../types';
 
 // API URL: use environment variable or default to localhost for development
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+function getAuthHeader(): Record<string, string> {
+  const token = localStorage.getItem('gp_access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${endpoint}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...getAuthHeader(),
     },
     ...options,
   });
@@ -64,6 +76,7 @@ export const createFacility = (data: {
 });
 
 // Documents
+export const getDocuments = () => fetchAPI<Document[]>('/documents');
 export const getDocument = (id: string) => fetchAPI<Document>(`/documents/${id}`);
 export const createDocument = (data: {
   documentType: string;
@@ -170,3 +183,81 @@ export const getEnums = () => fetchAPI<{
   facilityTypes: string[];
   documentTypes: string[];
 }>('/enums');
+
+// ── On-Chain Traceability (GoldSilverTraceability contract) ──
+
+export const getTraceabilityStatus = () =>
+  fetchAPI<TraceabilityStatus>('/traceability/status');
+
+export const getGasInfo = () =>
+  fetchAPI<GasStatus>('/traceability/gas');
+
+export const getOres = () => fetchAPI<OnChainOre[]>('/traceability/ores');
+export const getBars = () => fetchAPI<OnChainBar[]>('/traceability/bars');
+export const getProducts = () => fetchAPI<OnChainProduct[]>('/traceability/products');
+export const getTraceabilityEvents = () => fetchAPI<OnChainEvent[]>('/traceability/events');
+
+export const getOre = (id: string) => fetchAPI<OnChainOre>(`/traceability/ore/${id}`);
+export const getBar = (id: string) => fetchAPI<OnChainBar>(`/traceability/bar/${id}`);
+export const getProduct = (id: string) => fetchAPI<OnChainProduct>(`/traceability/product/${id}`);
+
+export const registerOre = (data: {
+  metal: string;
+  mineId: string;
+  originCountry: string;
+  mineralType: string;
+  weightGrams: number;
+  estimatedGrade: string;
+}) => fetchAPI<OnChainOre>('/traceability/ore', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+
+export const refineOre = (data: {
+  oreIds: string[];
+  metal: string;
+  refineryId: string;
+  outputWeightGrams: number;
+  finenessPPT: number;
+  barSerialNumber: string;
+}) => fetchAPI<OnChainBar>('/traceability/refine', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+
+export const certifyBar = (data: {
+  inputBarId: string;
+  metal: string;
+  assayerId: string;
+  weightGrams: number;
+  finenessPPT: number;
+  hallmark: string;
+  sku: string;
+  productType: string;
+}) => fetchAPI<OnChainProduct>('/traceability/certify', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+
+// ── Document Root (on-chain Merkle anchoring) ──
+
+export const setDocumentRoot = (recordType: string, recordId: string, data: {
+  root: string;
+  manifestCID?: string;
+}) => fetchAPI<{ recordType: string; recordId: string; root: string; manifestCID: string; txHash: string; explorerUrl: string | null }>(
+  `/traceability/${recordType}/${recordId}/document-root`,
+  { method: 'POST', body: JSON.stringify(data) },
+);
+
+export const getDocumentRoot = (recordType: string, recordId: string) =>
+  fetchAPI<{ root: string | null; manifestCID: string | null }>(
+    `/traceability/${recordType}/${recordId}/document-root`,
+  );
+
+export const verifyDocumentProof = (recordType: string, recordId: string, data: {
+  proof: string[];
+  leaf: string;
+}) => fetchAPI<{ valid: boolean; recordType: string; recordId: string; leaf: string }>(
+  `/traceability/${recordType}/${recordId}/verify-document`,
+  { method: 'POST', body: JSON.stringify(data) },
+);

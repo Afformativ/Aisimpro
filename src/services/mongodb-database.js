@@ -70,6 +70,8 @@ const BatchSchema = new mongoose.Schema({
     default: 'Created'
   },
   parentBatchIds: [{ type: String, ref: 'Batch' }],
+  documentIds: [{ type: String, ref: 'Document' }],
+  eventIds: [{ type: String, ref: 'Event' }],
   notes: { type: String },
   batchHash: { type: String },
   createdAt: { type: Date, default: Date.now }
@@ -322,6 +324,19 @@ class MongoDatabase {
     const document = await Document.create(documentData);
     await this.logAction('CREATE', 'Document', document.documentId, document);
     return document.toObject();
+  }
+
+  async updateDocument(documentData) {
+    const document = await Document.findOneAndUpdate(
+      { documentId: documentData.documentId },
+      documentData,
+      { new: true, runValidators: true }
+    );
+    if (document) {
+      await this.logAction('UPDATE', 'Document', document.documentId, document);
+      return document.toObject();
+    }
+    return null;
   }
 
   async getDocument(documentId) {

@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "outDir": "build",
+    "declaration": true,
+    "jsx": "react-jsx",
+    "sourceMap": true,
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "types": ["node", "jest", "@testing-library/jest-dom"],
+  "include": ["src"],
+  "exclude": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx", "**/*.stories.tsx"]
+}

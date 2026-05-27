@@ -1,0 +1,420 @@
+import { NextResponse } from 'next/server';
+import {
+  ValidationError,
+  isNonEmptyString,
+  parsePositiveInt,
+  parseNonNegativeInt,
+  parseBooleanString,
+  assertPublicUrl,
+} from '@/lib/api/validation';
+import { withTenantAuth } from '@/lib/api/with-tenant-auth';
+import { apiLogger } from '@/lib/api/logger';
+import { resolveDataModel, isDccDataModel } from '@/lib/credentials/resolve-data-model';
+import { validateCredentialPayload } from '@/lib/credentials/validate-credential-payload';
+import { issueCredential } from '@/lib/credentials/issue-credential';
+import { updateCredentialPublished, listCredentials } from '@/lib/prisma/repositories';
+import { buildPaginatedResponse, MAX_PAGE_LIMIT } from '@/lib/api/pagination';
+import { resolveVcService } from '@/lib/services/resolve-vc-service';
+import { resolveStorageService } from '@/lib/services/resolve-storage-service';
+import { resolveIdrService } from '@/lib/services/resolve-idr-service';
+import { getDidByDid } from '@/lib/prisma/repositories';
+import { buildPublishLinks } from '@uncefact/untp-ri-services';
+import type { CredentialPayload, ExtractedRefs } from '@uncefact/untp-ri-services';
+import { validateCvcCompliance } from '@/lib/services/cvc-validation.service';
+import type { CvcValidationWarning } from '@/lib/services/cvc-validation.service';
+
+const logger = apiLogger.child({ route: '/api/v1/credentials' });
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * @swagger
+ * /credentials:
+ *   post:
+ *     summary: Issue a verifiable credential
+ *     description: |
+ *       Validates a credential payload via JSON Schema and JSON-LD expansion,
+ *       verifies that the issuer DID belongs to the authenticated tenant or is
+ *       a system default DID, signs it, stores the enveloped credential
+ *       (optionally encrypted), optionally publishes it to the Identity
+ *       Resolver, links it to its primary entity, and returns the credential ID.
+ *     tags:
+ *       - Credentials
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CredentialIssueRequest'
+ *     responses:
+ *       201:
+ *         description: Credential issued
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CredentialIssueResponse'
+ *       400:
+ *         description: Validation error (invalid payload, unknown data model, or issuer DID not registered to tenant)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorised
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Data model or service instance not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+export const POST = withTenantAuth(async (req, { tenantId }) => {
+  let body: {
+    credentialPayload?: CredentialPayload;
+    credentialType?: string;
+    version?: string;
+    storageOptions?: {
+      serviceInstanceId?: string;
+      encrypt?: boolean;
+    };
+    publishingOptions?: {
+      publish?: boolean;
+      linkType?: string;
+      linkTitle?: string;
+      qualifierPath?: string;
+      machineVerificationUrl?: string;
+      humanVerificationUrl?: string;
+    };
+  };
+
+  logger.info('Parsing request body');
+  try {
+    body = await req.json();
+  } catch (e) {
+    logger.warn({ err: e }, 'Failed to parse request body as JSON');
+    throw new ValidationError('Invalid JSON body');
+  }
+
+  // ── Step 1: Validate request ────────────────────────────────────────────
+
+  logger.info('Validating input parameters');
+  if (!body.credentialPayload || typeof body.credentialPayload !== 'object') {
+    throw new ValidationError('credentialPayload is required and must be an object');
+  }
+
+  if (!isNonEmptyString(body.credentialType)) {
+    throw new ValidationError('credentialType is required');
+  }
+
+  if (!isNonEmptyString(body.version)) {
+    throw new ValidationError('version is required');
+  }
+
+  const { credentialPayload, credentialType, version } = body;
+  const storageOptions = body.storageOptions ?? {};
+  const publishingOptions = body.publishingOptions ?? {};
+
+  // ── SSRF validation for URL fields ────────────────────────────────────
+  if (process.env.VERIFY_ALLOW_PRIVATE_URLS !== 'true') {
+    if (publishingOptions.machineVerificationUrl) {
+      await assertPublicUrl(publishingOptions.machineVerificationUrl, 'publishingOptions.machineVerificationUrl');
+    }
+    if (publishingOptions.humanVerificationUrl) {
+      await assertPublicUrl(publishingOptions.humanVerificationUrl, 'publishingOptions.humanVerificationUrl');
+    }
+  }
+
+  // ── Step 2: Resolve data model ──────────────────────────────────────────
+
+  logger.info({ credentialType, version }, 'Resolving data model');
+  const { dataModel, bridge, schemaUrls } = await resolveDataModel(tenantId, credentialType, version);
+
+  // ── Step 3: Validate payload ────────────────────────────────────────────
+
+  logger.info('Validating credential payload against schema');
+  await validateCredentialPayload(credentialPayload, schemaUrls);
+
+  // ── Step 3.5: CVC validation (advisory) ─────────────────────────────
+
+  let cvcWarnings: CvcValidationWarning[] = [];
+  const isDcc = isDccDataModel(dataModel);
+
+  let refs: ExtractedRefs | undefined;
+  try {
+    const subject = credentialPayload.credentialSubject as Record<string, unknown>;
+    refs = bridge.extractRefs(subject);
+  } catch (error) {
+    logger.error({ err: error, credentialType }, 'Reference extraction failed');
+    cvcWarnings = [
+      {
+        code: 'CVC_VALIDATION_ERROR' as const,
+        message: publishingOptions.publish
+          ? 'Failed to extract references from credential payload — publishing will be skipped'
+          : 'Failed to extract references from credential payload',
+      },
+    ];
+  }
+
+  if (isDcc && refs && !refs.conformity) {
+    cvcWarnings.push({
+      code: 'CVC_NO_CONFORMITY' as const,
+      message: 'No conformity data found in DCC credential payload',
+    });
+  }
+
+  if (isDcc && refs?.conformity) {
+    try {
+      const result = await validateCvcCompliance(tenantId, refs.conformity);
+      cvcWarnings = result.warnings;
+    } catch (error) {
+      logger.error({ err: error, credentialType }, 'CVC compliance validation failed');
+      cvcWarnings = [
+        {
+          code: 'CVC_VALIDATION_ERROR' as const,
+          message: 'CVC validation could not be performed — credential was issued without CVC checks',
+        },
+      ];
+    }
+  }
+
+  // ── Step 4: Validate issuer DID ownership ────────────────────────────────
+  // The issuer DID in the credential payload must belong to the authenticated
+  // tenant or be the system default DID. This prevents a tenant from signing
+  // credentials with a DID they do not control.
+
+  const issuer = credentialPayload.issuer;
+  const issuerDid = typeof issuer === 'string' ? issuer : issuer?.id;
+  if (!issuerDid) {
+    throw new ValidationError('credentialPayload.issuer.id is required');
+  }
+
+  logger.info({ issuerDid }, 'Validating issuer DID ownership');
+  const didRecord = await getDidByDid(issuerDid, tenantId);
+  if (!didRecord) {
+    logger.warn({ issuerDid, tenantId }, 'Issuer DID not found for tenant');
+    throw new ValidationError(
+      `Issuer DID "${issuerDid}" is not registered to your tenant. ` +
+        'You can only issue credentials with a DID that belongs to your tenant or the system default DID.',
+    );
+  }
+
+  // ── Step 5: Validate DID has a VC service association ──────────────────
+
+  if (!didRecord.serviceInstanceId) {
+    logger.warn({ issuerDid }, 'Issuer DID has no associated VC service instance');
+    throw new ValidationError(
+      `Issuer DID "${issuerDid}" has no associated VC service instance. ` +
+        'The DID may have lost its service association (e.g., the service instance was force-deleted). ' +
+        'Re-import or re-create the DID to restore the association.',
+    );
+  }
+
+  // ── Step 6: Resolve services ────────────────────────────────────────────
+  // The VC service is resolved from the DID's associated service instance,
+  // ensuring signing always happens on the VC service that holds the DID's
+  // key material. This works for both tenant-owned and system default DIDs.
+
+  logger.info({ vcServiceInstanceId: didRecord.serviceInstanceId }, 'Resolving VC and storage services');
+  const vcService = await resolveVcService(tenantId, didRecord.serviceInstanceId);
+  const storageService = await resolveStorageService(tenantId, storageOptions.serviceInstanceId);
+
+  // ── Step 7: Issue credential ────────────────────────────────────────────
+
+  logger.info({ credentialType }, 'Issuing credential');
+  const { credentialId, storageResponse, primaryEntity } = await issueCredential({
+    tenantId,
+    credentialPayload,
+    credentialType,
+    refs: refs ?? { organisations: [], facilities: [], products: [] },
+    vcService,
+    storageService,
+    storageOptions,
+  });
+
+  // ── Step 8: Publish to IDR ──────────────────────────────────────────────
+
+  if (publishingOptions.publish === true) {
+    if (!primaryEntity.schemePrimaryKey || !primaryEntity.schemeNamespace) {
+      logger.warn({ credentialId }, 'Publishing requested but entity has no scheme configuration — skipping');
+      cvcWarnings.push({
+        code: 'PUBLISH_SKIPPED' as const,
+        message: 'Publishing was requested but the entity has no identity scheme configuration',
+      });
+    } else if (!primaryEntity.primaryIdentifier) {
+      logger.warn({ credentialId }, 'Publishing requested but no primary identifier resolved — skipping');
+      cvcWarnings.push({
+        code: 'PUBLISH_SKIPPED' as const,
+        message: 'Publishing was requested but no primary identifier could be resolved from the credential payload',
+      });
+    } else {
+      // Resolve IDR service outside try-catch — config failures should be fatal
+      const idrService = await resolveIdrService(tenantId, primaryEntity.schemeIdrServiceInstanceId);
+
+      const linkTitle = publishingOptions.linkTitle || dataModel.name;
+      const links = buildPublishLinks(storageResponse, linkTitle, {
+        linkType: publishingOptions.linkType,
+        machineVerificationUrl: publishingOptions.machineVerificationUrl,
+        humanVerificationUrl: publishingOptions.humanVerificationUrl,
+      });
+
+      logger.info(
+        { idrInstanceId: idrService.instanceId, primaryIdentifier: primaryEntity.primaryIdentifier },
+        'Publishing credential to IDR',
+      );
+
+      try {
+        await idrService.service.publishLinks(
+          primaryEntity.schemePrimaryKey,
+          primaryEntity.primaryIdentifier,
+          links,
+          publishingOptions.qualifierPath || '/',
+          {
+            namespace: primaryEntity.schemeNamespace,
+            description: primaryEntity.entityDescription || primaryEntity.entityName,
+          },
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        logger.error(
+          { err: error, credentialId, scheme: primaryEntity.schemePrimaryKey },
+          'Failed to publish credential to IDR',
+        );
+        cvcWarnings.push({
+          code: 'IDR_PUBLISH_FAILED',
+          message: `Failed to publish credential to identity resolver: ${detail}. Ensure the identifier scheme is registered with the IDR service. Contact your IDR operator if this persists.`,
+        });
+      }
+
+      if (!cvcWarnings.some((w) => w.code === 'IDR_PUBLISH_FAILED')) {
+        try {
+          await updateCredentialPublished(credentialId, tenantId, true);
+        } catch (error) {
+          logger.error(
+            { err: error, credentialId },
+            'Failed to update published status — credential was published to IDR but DB record is stale',
+          );
+          cvcWarnings.push({
+            code: 'DB_STATUS_UPDATE_FAILED' as const,
+            message: 'Credential was published to IDR but the published status could not be saved',
+          });
+        }
+      }
+    }
+  }
+
+  logger.info({ credentialId }, 'Credential issued successfully');
+  const response: Record<string, unknown> = { credentialId };
+  if (cvcWarnings.length > 0) response.warnings = cvcWarnings;
+  return NextResponse.json(response, { status: 201 });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/credentials
+// ---------------------------------------------------------------------------
+
+/**
+ * @swagger
+ * /credentials:
+ *   get:
+ *     summary: List credentials
+ *     description: |
+ *       Returns a paginated, filterable list of credentials scoped to
+ *       the authenticated tenant.
+ *     tags:
+ *       - Credentials
+ *     parameters:
+ *       - in: query
+ *         name: credentialType
+ *         schema:
+ *           type: string
+ *         description: Filter by credential type (case-sensitive exact match)
+ *       - in: query
+ *         name: isPublished
+ *         schema:
+ *           type: string
+ *           enum: ["true", "false"]
+ *         description: Filter by published status
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 20
+ *         description: Maximum number of results
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Number of results to skip
+ *     responses:
+ *       200:
+ *         description: Paginated list of credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required:
+ *                 - data
+ *                 - pagination
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Credential'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMeta'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorised
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+export const GET = withTenantAuth(async (req, { tenantId }) => {
+  const url = new URL(req.url);
+
+  logger.info('Parsing query filters');
+  const credentialType = url.searchParams.get('credentialType') ?? undefined;
+  const isPublished = parseBooleanString(url.searchParams.get('isPublished'), 'isPublished');
+  const rawLimit = parsePositiveInt(url.searchParams.get('limit'), 'limit');
+  const limit = rawLimit !== undefined ? Math.min(rawLimit, MAX_PAGE_LIMIT) : undefined;
+  const offset = parseNonNegativeInt(url.searchParams.get('offset'), 'offset');
+
+  logger.info({ filters: { credentialType, isPublished, limit, offset } }, 'Querying credentials from database');
+  const { data, total } = await listCredentials({
+    tenantId,
+    credentialType,
+    isPublished,
+    limit,
+    offset,
+  });
+
+  logger.info({ count: data.length }, 'Credentials listed');
+  return NextResponse.json(buildPaginatedResponse(data, total, limit, offset));
+});

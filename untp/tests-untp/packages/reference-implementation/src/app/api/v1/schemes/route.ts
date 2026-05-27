@@ -1,0 +1,241 @@
+import { NextResponse } from 'next/server';
+import { ValidationError, isNonEmptyString, parsePositiveInt, parseNonNegativeInt } from '@/lib/api/validation';
+import { withTenantAuth } from '@/lib/api/with-tenant-auth';
+import { createIdentifierScheme, listIdentifierSchemes, getRegistrarById } from '@/lib/prisma/repositories';
+import { NotFoundError } from '@/lib/api/errors';
+import { buildPaginatedResponse, MAX_PAGE_LIMIT } from '@/lib/api/pagination';
+import { apiLogger } from '@/lib/api/logger';
+
+const logger = apiLogger.child({ route: '/api/v1/schemes' });
+
+/**
+ * @swagger
+ * /schemes:
+ *   post:
+ *     summary: Create a new identifier scheme
+ *     description: Creates a new identifier scheme with optional nested qualifiers for the authenticated tenant
+ *     tags:
+ *       - Schemes
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - registrarId
+ *               - name
+ *               - primaryKey
+ *               - validationPattern
+ *               - linkTemplate
+ *             properties:
+ *               registrarId:
+ *                 type: string
+ *                 description: ID of the parent registrar
+ *               name:
+ *                 type: string
+ *                 description: Human-readable name for the scheme
+ *               primaryKey:
+ *                 type: string
+ *                 description: Primary key identifier (e.g. "gtin", "sscc")
+ *               validationPattern:
+ *                 type: string
+ *                 description: Regular expression pattern for validating identifier values
+ *               linkTemplate:
+ *                 type: string
+ *                 description: ISO 18975 link template for URI construction (e.g. "/{primaryKey}/{value}")
+ *               idrServiceInstanceId:
+ *                 type: string
+ *                 description: Optional IDR service instance ID
+ *               qualifiers:
+ *                 type: array
+ *                 description: Optional list of qualifier definitions
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - key
+ *                     - description
+ *                     - validationPattern
+ *                   properties:
+ *                     key:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     validationPattern:
+ *                       type: string
+ *     responses:
+ *       201:
+ *         description: Scheme created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/IdentifierScheme'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorised - missing or invalid authentication
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Registrar not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+export const POST = withTenantAuth(async (req, { tenantId }) => {
+  logger.info('Parsing request body');
+  let body: {
+    registrarId?: string;
+    name?: string;
+    primaryKey?: string;
+    validationPattern?: string;
+    linkTemplate?: string;
+    idrServiceInstanceId?: string;
+    qualifiers?: Array<{
+      key: string;
+      description: string;
+      validationPattern: string;
+      order?: number;
+    }>;
+  };
+
+  try {
+    body = await req.json();
+  } catch {
+    throw new ValidationError('Invalid JSON body');
+  }
+
+  logger.info({ registrarId: body.registrarId, name: body.name }, 'Validating input parameters');
+  if (!isNonEmptyString(body.registrarId)) throw new ValidationError('registrarId is required');
+  if (!isNonEmptyString(body.name)) throw new ValidationError('name is required');
+  if (!isNonEmptyString(body.primaryKey)) throw new ValidationError('primaryKey is required');
+  if (!isNonEmptyString(body.validationPattern)) throw new ValidationError('validationPattern is required');
+  if (!isNonEmptyString(body.linkTemplate)) throw new ValidationError('linkTemplate is required');
+
+  // Validate qualifiers if provided
+  if (body.qualifiers !== undefined) {
+    if (!Array.isArray(body.qualifiers)) {
+      throw new ValidationError('qualifiers must be an array');
+    }
+    for (const q of body.qualifiers) {
+      if (!isNonEmptyString(q.key)) throw new ValidationError('qualifier key is required');
+      if (!isNonEmptyString(q.description)) throw new ValidationError('qualifier description is required');
+      if (!isNonEmptyString(q.validationPattern)) throw new ValidationError('qualifier validationPattern is required');
+    }
+  }
+
+  // Verify the registrar exists and belongs to this tenant
+  const registrar = await getRegistrarById(body.registrarId, tenantId);
+  if (!registrar) {
+    throw new NotFoundError('Registrar not found');
+  }
+
+  logger.info(
+    {
+      registrarId: body.registrarId,
+      primaryKey: body.primaryKey,
+      qualifierCount: body.qualifiers?.length ?? 0,
+    },
+    'Creating identifier scheme',
+  );
+  const scheme = await createIdentifierScheme({
+    tenantId,
+    registrarId: body.registrarId,
+    name: body.name,
+    primaryKey: body.primaryKey,
+    validationPattern: body.validationPattern,
+    linkTemplate: body.linkTemplate,
+    idrServiceInstanceId: body.idrServiceInstanceId,
+    qualifiers: body.qualifiers,
+  });
+
+  logger.info({ schemeId: scheme.id }, 'Scheme created');
+  return NextResponse.json(scheme, { status: 201 });
+});
+
+/**
+ * @swagger
+ * /schemes:
+ *   get:
+ *     summary: List identifier schemes
+ *     description: Retrieves a list of identifier schemes for the authenticated tenant with optional filtering
+ *     tags:
+ *       - Schemes
+ *     parameters:
+ *       - in: query
+ *         name: registrarId
+ *         schema:
+ *           type: string
+ *         description: Filter by registrar ID
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Maximum number of schemes to return
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *         description: Number of schemes to skip for pagination
+ *     responses:
+ *       200:
+ *         description: List of schemes retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/IdentifierScheme'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMeta'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorised - missing or invalid authentication
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+export const GET = withTenantAuth(async (req, { tenantId }) => {
+  logger.info('Parsing query parameters');
+  const url = new URL(req.url);
+  const registrarId = url.searchParams.get('registrarId') ?? undefined;
+  const rawLimit = parsePositiveInt(url.searchParams.get('limit'), 'limit');
+  const limit = rawLimit !== undefined ? Math.min(rawLimit, MAX_PAGE_LIMIT) : undefined;
+  const offset = parseNonNegativeInt(url.searchParams.get('offset'), 'offset');
+
+  logger.info({ registrarId, limit, offset }, 'Listing schemes');
+  const { data, total } = await listIdentifierSchemes(tenantId, { registrarId, limit, offset });
+
+  logger.info({ count: data.length }, 'Schemes listed');
+  return NextResponse.json(buildPaginatedResponse(data, total, limit, offset));
+});

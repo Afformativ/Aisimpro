@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, MapPin, User, Building2 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import * as api from '../services/api';
 import type { Facility, Party } from '../types';
 import { FACILITY_TYPES } from '../types';
@@ -8,6 +9,7 @@ import { FACILITY_TYPES } from '../types';
 export default function Facilities() {
   const [showForm, setShowForm] = useState(false);
   const queryClient = useQueryClient();
+  const { hasAnyRole } = useAuth();
 
   const { data: facilities = [], isLoading, error } = useQuery({
     queryKey: ['facilities'],
@@ -57,10 +59,12 @@ export default function Facilities() {
           <h1>Facilities</h1>
           <p className="subtitle">Physical locations in the supply chain</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-          <Plus size={20} />
-          Add Facility
-        </button>
+        {hasAnyRole('ISSUER', 'ADMIN', 'SUPERADMIN') && (
+          <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+            <Plus size={20} />
+            Add Facility
+          </button>
+        )}
       </div>
 
       {showForm && (

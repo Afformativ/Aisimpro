@@ -1,0 +1,31 @@
+import { ServiceError } from '../errors.js';
+
+/** Base error for all storage service operations. */
+export class StorageError extends ServiceError {}
+
+/** Failed to store a credential to the upstream storage service. */
+export class StorageStoreError extends StorageError {
+  constructor(httpStatus: number, detail: string) {
+    super(`Failed to store credential: HTTP ${httpStatus}: ${detail}`, 'STORAGE_STORE_FAILED', httpStatus, {
+      httpStatus,
+    });
+  }
+}
+
+/** Upstream storage service rejected the payload. */
+export class StoragePayloadError extends StorageError {
+  constructor(httpStatus: number, detail: string) {
+    super(`Storage service rejected payload: HTTP ${httpStatus}: ${detail}`, 'STORAGE_PAYLOAD_REJECTED', httpStatus, {
+      httpStatus,
+    });
+  }
+}
+
+/** Failed to delete content from the upstream storage service. */
+export class StorageDeleteError extends StorageError {
+  constructor(httpStatus: number, detail: string) {
+    super(`Failed to delete stored content: HTTP ${httpStatus}: ${detail}`, 'STORAGE_DELETE_FAILED', httpStatus, {
+      httpStatus,
+    });
+  }
+}

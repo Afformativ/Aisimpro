@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Building, MapPin, User, Users } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import * as api from '../services/api';
 import type { Party } from '../types';
 import { PARTY_TYPES } from '../types';
@@ -8,6 +9,7 @@ import { PARTY_TYPES } from '../types';
 export default function Parties() {
   const [showForm, setShowForm] = useState(false);
   const queryClient = useQueryClient();
+  const { hasAnyRole } = useAuth();
 
   const { data: parties = [], isLoading, error } = useQuery({
     queryKey: ['parties'],
@@ -46,10 +48,12 @@ export default function Parties() {
           <h1>Parties</h1>
           <p className="subtitle">Manage supply chain participants</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-          <Plus size={20} />
-          Add Party
-        </button>
+        {hasAnyRole('ISSUER', 'ADMIN', 'SUPERADMIN') && (
+          <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+            <Plus size={20} />
+            Add Party
+          </button>
+        )}
       </div>
 
       {showForm && (
