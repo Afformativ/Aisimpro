@@ -1,12 +1,13 @@
 import { decodeCredentialDocument } from './envelopedVc';
 
-export type UntpCredentialKind = 'dte' | 'dpp' | 'dcc';
-export type UntpEntityType = 'ore' | 'bar' | 'product';
+export type UntpCredentialKind = 'dte' | 'dpp' | 'dcc' | 'dfr' | 'dia';
+export type UntpEntityType = 'ore' | 'bar' | 'product' | 'party' | 'facility';
 
 export interface UntpCredentialTarget {
   kind: UntpCredentialKind;
   entityType: UntpEntityType;
   id: string;
+  eventId?: string;
 }
 
 export interface UntpDisplayField {
@@ -43,25 +44,35 @@ type RouteParams = {
   id?: string;
   credentialKind?: string;
   entityType?: string;
+  eventId?: string;
 };
 
 const SUPPORTED_TARGETS = new Set([
   'dte:ore',
   'dte:bar',
+  'dte:product',
   'dpp:product',
+  'dpp:ore',
+  'dpp:bar',
   'dcc:product',
+  'dfr:facility',
+  'dia:party',
 ]);
 
 const BADGES: Record<UntpCredentialKind, string> = {
   dte: 'UNTP Digital Traceability Event',
   dpp: 'UNTP Digital Product Passport',
   dcc: 'UNTP Digital Conformity Credential',
+  dfr: 'UNTP Digital Facility Record',
+  dia: 'UNTP Digital Identity Anchor',
 };
 
 const ACCENTS: Record<UntpEntityType, string> = {
   ore: '#d4af37',
   bar: '#f97316',
   product: '#10b981',
+  party: '#3b82f6',
+  facility: '#14b8a6',
 };
 
 function targetKey(kind: string, entityType: string) {
@@ -280,6 +291,224 @@ function buildBarDescription(claims: any, header: any): UntpCredentialDescriptio
   };
 }
 
+function buildCustodyTransferDescription(claims: any, header: any, entityType: UntpEntityType): UntpCredentialDescription {
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
+  const item = subject.epcList?.[0] || {};
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
+  const evidence = Array.isArray(claims?.evidence) ? claims.evidence[0] : claims?.evidence || {};
+  const accentColor = entityType === 'ore' ? ACCENTS.ore : entityType === 'bar' ? ACCENTS.bar : ACCENTS.product;
+
+  return {
+    badge: BADGES.dte,
+    title: 'Custody Transfer Event',
+    subtitle: asText(item.name) || asText(subject.id) || 'TransactionEvent',
+    accentColor,
+    qrTitle: BADGES.dte,
+    qrCaption: 'Scan to verify this custody transfer event',
+    footer: 'Issued under the UN Transparency Protocol (UNTP) as a custody transfer event.',
+    metaFields: compactFields([
+      field('Type', Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type),
+      field('Issuer', asText(issuer?.name) || asText(issuer?.id)),
+      field('Issued', formatDateTime(issuedDate)),
+      field('Algorithm', header?.alg),
+    ]),
+    stats: compactStats([
+      stat('From', truncate(subject.sourceParty?.id)),
+      stat('To', truncate(subject.destinationParty?.id)),
+      stat('Business Step', subject.bizStep),
+      stat('Issued', issuedDate ? new Date(issuedDate).toLocaleDateString() : null),
+    ]),
+    sections: [
+      section('Transfer Details', [
+        field('Subject ID', subject.id, { mono: true }),
+        field('Record', item.name),
+        field('Event Time', formatDateTime(subject.eventTime)),
+        field('Business Step', subject.bizStep),
+        field('Disposition', subject.disposition),
+        field('From', subject.sourceParty?.id, { mono: true }),
+        field('To', subject.destinationParty?.id, { mono: true }),
+      ]),
+      section('Issuer', [
+        field('Name', issuer?.name),
+        field('DID', issuer?.id, { mono: true }),
+      ]),
+      section('Blockchain Evidence', [
+        field('Type', asText(evidence?.name) || asText(evidence?.type)),
+        field('TX Hash', evidence?.txHash, { mono: true, href: asText(evidence?.explorerUrl) || undefined }),
+        field('Block Number', evidence?.blockNumber),
+      ]),
+      section('Proof', [
+        field('Envelope Type', claims?.type ? (Array.isArray(claims.type) ? claims.type.join(', ') : claims.type) : null),
+        field('Suite', header?.typ || 'vc+jwt'),
+        field('Algorithm', header?.alg),
+        field('Key ID', header?.kid, { mono: true }),
+      ]),
+      section('Credential ID', [
+        field('ID', claims?.id, { mono: true }),
+      ]),
+    ].filter((item): item is UntpDisplaySection => Boolean(item)),
+  };
+}
+
+function buildOrePassportDescription(claims: any, header: any): UntpCredentialDescription {
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
+  const characteristics = subject.characteristics || {};
+  const weight = subject.dimensions?.weight || {};
+  const producer = subject.producedByParty || {};
+  const traceability = Array.isArray(subject.traceabilityInformation) ? subject.traceabilityInformation[0] : null;
+  const attachment = Array.isArray(subject.attachments) ? subject.attachments[0] : null;
+  const evidence = Array.isArray(claims?.evidence) ? claims.evidence[0] : claims?.evidence || {};
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
+  const metal = metalName(characteristics.metalCode);
+
+  return {
+    badge: BADGES.dpp,
+    title: asText(subject.name) || `${metal} Ore Passport`,
+    subtitle: asText(subject.description) || 'Digital Product Passport',
+    accentColor: ACCENTS.ore,
+    qrTitle: BADGES.dpp,
+    qrCaption: "Scan to open this ore's UNTP passport",
+    footer: 'Issued under the UN Transparency Protocol (UNTP) as a Digital Product Passport.',
+    metaFields: compactFields([
+      field('Type', Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type),
+      field('Issuer', asText(issuer?.name) || asText(issuer?.id)),
+      field('Issued', formatDateTime(issuedDate)),
+      field('Algorithm', header?.alg),
+    ]),
+    stats: compactStats([
+      stat('Weight', formatWeight(weight.value, weight.unit)),
+      stat('Origin Country', characteristics.originCountry),
+      stat('Mineral Type', characteristics.mineralType),
+      stat('Issued', issuedDate ? new Date(issuedDate).toLocaleDateString() : null),
+    ]),
+    sections: [
+      section('Ore Details', [
+        field('Name', subject.name),
+        field('Description', subject.description),
+        field('On-chain ID', subject.registeredId?.id, { mono: true }),
+        field('Serial Number', subject.serialNumber, { mono: true }),
+        field('Metal', metal),
+        field('Origin Country', characteristics.originCountry),
+        field('Mineral Type', characteristics.mineralType),
+        field('Estimated Grade', characteristics.estimatedGrade),
+        field('Weight', formatWeight(weight.value, weight.unit)),
+        field('Production Date', formatDateTime(subject.productionDate)),
+      ]),
+      section('Produced By', [
+        field('Name', producer.name),
+        field('ID', producer.id, { mono: true }),
+      ]),
+      section('Traceability', [
+        field('Source Event', traceability?.eventReference, { mono: true }),
+        field('Event Type', traceability?.eventType),
+        field('Trace Depth', traceability?.tracedTo),
+      ]),
+      section('Attachments', [
+        field('Attachment Type', attachment?.type),
+        field('Merkle Root', attachment?.merkleRoot, { mono: true }),
+        field('Manifest CID', attachment?.manifestCID, { mono: true }),
+      ]),
+      section('Issuer', [
+        field('Name', issuer?.name),
+        field('DID', issuer?.id, { mono: true }),
+      ]),
+      section('Blockchain Evidence', [
+        field('Type', asText(evidence?.name) || asText(evidence?.type)),
+        field('TX Hash', evidence?.txHash, { mono: true, href: asText(evidence?.explorerUrl) || undefined }),
+        field('Block Number', evidence?.blockNumber),
+      ]),
+      section('Proof', [
+        field('Envelope Type', claims?.type ? (Array.isArray(claims.type) ? claims.type.join(', ') : claims.type) : null),
+        field('Suite', header?.typ || 'vc+jwt'),
+        field('Algorithm', header?.alg),
+        field('Key ID', header?.kid, { mono: true }),
+      ]),
+      section('Credential ID', [
+        field('ID', claims?.id, { mono: true }),
+      ]),
+    ].filter((item): item is UntpDisplaySection => Boolean(item)),
+  };
+}
+
+function buildBarPassportDescription(claims: any, header: any): UntpCredentialDescription {
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
+  const characteristics = subject.characteristics || {};
+  const weight = subject.dimensions?.weight || {};
+  const producer = subject.producedByParty || {};
+  const traceability = Array.isArray(subject.traceabilityInformation) ? subject.traceabilityInformation : [];
+  const attachment = Array.isArray(subject.attachments) ? subject.attachments[0] : null;
+  const evidence = Array.isArray(claims?.evidence) ? claims.evidence[0] : claims?.evidence || {};
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
+  const metal = metalName(characteristics.metalCode);
+
+  return {
+    badge: BADGES.dpp,
+    title: asText(subject.name) || `${metal} Bar Passport`,
+    subtitle: asText(subject.description) || 'Digital Product Passport',
+    accentColor: ACCENTS.bar,
+    qrTitle: BADGES.dpp,
+    qrCaption: "Scan to open this refined bar's UNTP passport",
+    footer: 'Issued under the UN Transparency Protocol (UNTP) as a Digital Product Passport.',
+    metaFields: compactFields([
+      field('Type', Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type),
+      field('Issuer', asText(issuer?.name) || asText(issuer?.id)),
+      field('Issued', formatDateTime(issuedDate)),
+      field('Algorithm', header?.alg),
+    ]),
+    stats: compactStats([
+      stat('Weight', formatWeight(weight.value, weight.unit)),
+      stat('Fineness', asText(characteristics.fineness) || formatFineness(characteristics.finenessPPT)),
+      stat('Input Ores', traceability.length ? String(traceability.length) : null),
+      stat('Issued', issuedDate ? new Date(issuedDate).toLocaleDateString() : null),
+    ]),
+    sections: [
+      section('Bar Details', [
+        field('Name', subject.name),
+        field('Description', subject.description),
+        field('Serial Number', subject.serialNumber),
+        field('Metal', metal),
+        field('Weight', formatWeight(weight.value, weight.unit)),
+        field('Fineness', asText(characteristics.fineness) || formatFineness(characteristics.finenessPPT)),
+        field('Production Date', formatDateTime(subject.productionDate)),
+      ]),
+      section('Produced By', [
+        field('Name', producer.name),
+        field('ID', producer.id, { mono: true }),
+      ]),
+      section('Traceability', [
+        field('Source Records', traceability.map((entry: any) => entry.eventReference).join(', ')),
+        field('Event Types', [...new Set(traceability.map((entry: any) => entry.eventType))].join(', ')),
+      ]),
+      section('Attachments', [
+        field('Attachment Type', attachment?.type),
+        field('Merkle Root', attachment?.merkleRoot, { mono: true }),
+        field('Manifest CID', attachment?.manifestCID, { mono: true }),
+      ]),
+      section('Issuer', [
+        field('Name', issuer?.name),
+        field('DID', issuer?.id, { mono: true }),
+      ]),
+      section('Blockchain Evidence', [
+        field('Type', asText(evidence?.name) || asText(evidence?.type)),
+        field('TX Hash', evidence?.txHash, { mono: true, href: asText(evidence?.explorerUrl) || undefined }),
+        field('Block Number', evidence?.blockNumber),
+      ]),
+      section('Proof', [
+        field('Envelope Type', claims?.type ? (Array.isArray(claims.type) ? claims.type.join(', ') : claims.type) : null),
+        field('Suite', header?.typ || 'vc+jwt'),
+        field('Algorithm', header?.alg),
+        field('Key ID', header?.kid, { mono: true }),
+      ]),
+      section('Credential ID', [
+        field('ID', claims?.id, { mono: true }),
+      ]),
+    ].filter((item): item is UntpDisplaySection => Boolean(item)),
+  };
+}
+
 function buildProductPassportDescription(claims: any, header: any): UntpCredentialDescription {
   const subject = claims?.credentialSubject || {};
   const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
@@ -452,6 +681,124 @@ function buildProductConformityDescription(claims: any, header: any): UntpCreden
   };
 }
 
+function buildPartyDiaDescription(claims: any, header: any): UntpCredentialDescription {
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
+
+  return {
+    badge: BADGES.dia,
+    title: asText(subject.name) || 'Digital Identity Anchor',
+    subtitle: asText(subject.registeredId) || 'Registered identity',
+    accentColor: '#3b82f6',
+    qrTitle: BADGES.dia,
+    qrCaption: "Scan to open this party's UNTP identity anchor",
+    footer: 'Issued under the UN Transparency Protocol (UNTP) as a Digital Identity Anchor.',
+    metaFields: compactFields([
+      field('Type', Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type),
+      field('Issuer', asText(issuer?.name) || asText(issuer?.id)),
+      field('Issued', formatDateTime(issuedDate)),
+      field('Algorithm', header?.alg),
+    ]),
+    stats: compactStats([
+      stat('Register Type', subject.registerType),
+      stat('Registered ID', subject.registeredId),
+      stat('Scope', Array.isArray(subject.registrationScopeList) ? subject.registrationScopeList.join(', ') : null),
+      stat('Issued', issuedDate ? new Date(issuedDate).toLocaleDateString() : null),
+    ]),
+    sections: [
+      section('Registered Identity', [
+        field('Name', subject.name),
+        field('DID', subject.id, { mono: true }),
+        field('Registered ID', subject.registeredId),
+        field('Register Type', subject.registerType),
+        field('ID Scheme', subject.idScheme?.name),
+        field('ID Scheme URI', subject.idScheme?.id, { mono: true }),
+        field('Registration Scope', Array.isArray(subject.registrationScopeList) ? subject.registrationScopeList.join(', ') : null),
+        field('Party Type', subject.partyType),
+      ]),
+      section('Issuer', [
+        field('Name', issuer?.name),
+        field('DID', issuer?.id, { mono: true }),
+      ]),
+      section('Proof', [
+        field('Envelope Type', claims?.type ? (Array.isArray(claims.type) ? claims.type.join(', ') : claims.type) : null),
+        field('Suite', header?.typ || 'vc+jwt'),
+        field('Algorithm', header?.alg),
+        field('Key ID', header?.kid, { mono: true }),
+      ]),
+      section('Credential ID', [
+        field('ID', claims?.id, { mono: true }),
+      ]),
+    ].filter((item): item is UntpDisplaySection => Boolean(item)),
+  };
+}
+
+function buildFacilityRecordDescription(claims: any, header: any): UntpCredentialDescription {
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
+  const location = subject.location || {};
+  const operator = subject.operatedByParty || {};
+  const identifiers = Array.isArray(subject.registeredIdentifiers) ? subject.registeredIdentifiers : [];
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
+
+  return {
+    badge: BADGES.dfr,
+    title: asText(subject.name) || 'Digital Facility Record',
+    subtitle: asText(subject.facilityType) || 'Registered facility',
+    accentColor: ACCENTS.facility,
+    qrTitle: BADGES.dfr,
+    qrCaption: "Scan to open this facility's UNTP record",
+    footer: 'Issued under the UN Transparency Protocol (UNTP) as a Digital Facility Record.',
+    metaFields: compactFields([
+      field('Type', Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type),
+      field('Issuer', asText(issuer?.name) || asText(issuer?.id)),
+      field('Issued', formatDateTime(issuedDate)),
+      field('Algorithm', header?.alg),
+    ]),
+    stats: compactStats([
+      stat('Facility Type', subject.facilityType),
+      stat('Country', location.country),
+      stat('Operator', operator.name || operator.id),
+      stat('Issued', issuedDate ? new Date(issuedDate).toLocaleDateString() : null),
+    ]),
+    sections: [
+      section('Facility Details', [
+        field('Name', subject.name),
+        field('Facility Type', subject.facilityType),
+        field('Facility ID', subject.id, { mono: true }),
+      ]),
+      section('Location', [
+        field('Location ID', location.id, { mono: true }),
+        field('Name', location.name),
+        field('Country', location.country),
+        field('Region', location.region),
+        field('Coordinates', location.plusCode),
+      ]),
+      section('Operator', [
+        field('Name', operator.name),
+        field('ID', operator.id, { mono: true }),
+      ]),
+      section('Registered Identifiers', [
+        field('Identifiers', identifiers.map((entry: any) => `${entry.scheme || 'scheme'}: ${entry.id}`).join(', ')),
+      ]),
+      section('Issuer', [
+        field('Name', issuer?.name),
+        field('DID', issuer?.id, { mono: true }),
+      ]),
+      section('Proof', [
+        field('Envelope Type', claims?.type ? (Array.isArray(claims.type) ? claims.type.join(', ') : claims.type) : null),
+        field('Suite', header?.typ || 'vc+jwt'),
+        field('Algorithm', header?.alg),
+        field('Key ID', header?.kid, { mono: true }),
+      ]),
+      section('Credential ID', [
+        field('ID', claims?.id, { mono: true }),
+      ]),
+    ].filter((item): item is UntpDisplaySection => Boolean(item)),
+  };
+}
+
 export function isSupportedUntpTarget(kind: string, entityType: string) {
   return SUPPORTED_TARGETS.has(targetKey(kind, entityType));
 }
@@ -470,6 +817,7 @@ export function resolveUntpRouteTarget(params: RouteParams): UntpCredentialTarge
     kind: params.credentialKind as UntpCredentialKind,
     entityType: params.entityType as UntpEntityType,
     id: params.id,
+    eventId: params.eventId,
   };
 }
 
@@ -477,19 +825,35 @@ export function getUntpApiPath(target: UntpCredentialTarget) {
   const key = targetKey(target.kind, target.entityType);
   switch (key) {
     case 'dte:ore':
+      if (target.eventId) return `/api/credentials/dte/ore/${target.id}/custody/${target.eventId}`;
       return `/api/credentials/dte/ore/${target.id}`;
     case 'dte:bar':
+      if (target.eventId) return `/api/credentials/dte/bar/${target.id}/custody/${target.eventId}`;
       return `/api/credentials/dte/bar/${target.id}`;
+    case 'dte:product':
+      if (target.eventId) return `/api/credentials/dte/product/${target.id}/custody/${target.eventId}`;
+      throw new Error('Product DTE viewer requires a custody event id');
+    case 'dpp:ore':
+      return `/api/credentials/dpp/ore/${target.id}`;
+    case 'dpp:bar':
+      return `/api/credentials/dpp/bar/${target.id}`;
     case 'dpp:product':
       return `/api/credentials/dpp/product/${target.id}`;
     case 'dcc:product':
       return `/api/credentials/dcc/product/${target.id}`;
+    case 'dfr:facility':
+      return `/api/credentials/dfr/facility/${target.id}`;
+    case 'dia:party':
+      return `/api/credentials/dia/party/${target.id}`;
     default:
       throw new Error(`Unsupported UNTP credential target: ${key}`);
   }
 }
 
 export function getUntpViewerPath(target: UntpCredentialTarget) {
+  if (target.kind === 'dte' && target.eventId) {
+    return `/vc/dte/${target.entityType}/${target.id}/custody/${target.eventId}`;
+  }
   return `/vc/${target.kind}/${target.entityType}/${target.id}`;
 }
 
@@ -503,13 +867,25 @@ export function describeUntpCredential(target: UntpCredentialTarget, document: R
   const key = targetKey(target.kind, target.entityType);
   switch (key) {
     case 'dte:ore':
+      if (target.eventId) return buildCustodyTransferDescription(claims, header, 'ore');
       return buildOreDescription(claims, header);
     case 'dte:bar':
+      if (target.eventId) return buildCustodyTransferDescription(claims, header, 'bar');
       return buildBarDescription(claims, header);
+    case 'dte:product':
+      return buildCustodyTransferDescription(claims, header, 'product');
+    case 'dpp:ore':
+      return buildOrePassportDescription(claims, header);
+    case 'dpp:bar':
+      return buildBarPassportDescription(claims, header);
     case 'dpp:product':
       return buildProductPassportDescription(claims, header);
     case 'dcc:product':
       return buildProductConformityDescription(claims, header);
+    case 'dfr:facility':
+      return buildFacilityRecordDescription(claims, header);
+    case 'dia:party':
+      return buildPartyDiaDescription(claims, header);
     default:
       return null;
   }

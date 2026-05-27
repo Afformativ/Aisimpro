@@ -9,6 +9,7 @@ import type {
   VerificationResult,
   AuditLogEntry,
   TraceabilityStatus,
+  GasInfo,
   GasStatus,
   OnChainOre,
   OnChainBar,
@@ -235,6 +236,24 @@ export const certifyBar = (data: {
   sku: string;
   productType: string;
 }) => fetchAPI<OnChainProduct>('/traceability/certify', {
+  method: 'POST',
+  body: JSON.stringify(data),
+});
+
+export const transferTraceabilityCustody = (data: {
+  recordType: 'ore' | 'bar' | 'product';
+  id: string;
+  to: string;
+}) => fetchAPI<{
+  recordType: string;
+  id: string;
+  from: string;
+  to: string;
+  timestamp: number;
+  txHash: string | null;
+  explorerUrl: string | null;
+  gasInfo?: GasInfo;
+}>('/traceability/transfer-custody', {
   method: 'POST',
   body: JSON.stringify(data),
 });

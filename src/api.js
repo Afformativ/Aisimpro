@@ -558,6 +558,24 @@ app.post('/api/traceability/certify', requireAuth, requireAnyRole('ASSAYER', 'AD
 });
 
 /**
+ * POST /api/traceability/transfer-custody
+ * Transfer custody of an ore, bar, or product to another wallet.
+ * Requires: DEALER or ADMIN role
+ */
+app.post('/api/traceability/transfer-custody', requireAuth, requireAnyRole('DEALER', 'ADMIN'), async (req, res) => {
+  try {
+    const { recordType, id, to } = req.body;
+    if (!recordType || !id || !to) {
+      return res.status(400).json({ error: 'recordType, id, and to are required' });
+    }
+    const result = await traceabilityContract.transferCustody(recordType, id, to);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/traceability/ore/:id
  */
 app.get('/api/traceability/ore/:id', async (req, res) => {

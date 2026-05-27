@@ -9,9 +9,13 @@
  *   Credentials  — W3C VC JSON-LD
  *     GET /api/credentials/dte/ore/:id
  *     GET /api/credentials/dte/bar/:id
+ *     GET /api/credentials/dte/:recordType/:id/custody/:eventId
+ *     GET /api/credentials/dpp/ore/:id
+ *     GET /api/credentials/dpp/bar/:id
  *     GET /api/credentials/dpp/product/:id
  *     GET /api/credentials/dcc/product/:id
  *     GET /api/credentials/dfr/facility/:id
+ *     GET /api/credentials/dia/party/:id
  *     GET /api/credentials/status/bitstring-status-list/:statusPurpose
  *
  *   DID Documents
@@ -28,9 +32,13 @@ import { Router } from 'express';
 import {
   buildDTE_OreExtraction,
   buildDTE_BarRefinement,
+  buildDTE_CustodyTransfer,
+  buildDPP_Ore,
+  buildDPP_Bar,
   buildDPP_Product,
   buildDCC_Assay,
   buildDFR_Facility,
+  buildDIA_Party,
   buildDIDDocument,
   buildStatusListCredential,
 } from '../services/untp-credentials.js';
@@ -69,6 +77,17 @@ router.get('/ore/:id',      (req, res) => res.redirect(302, `/api/resolve/ore/${
 router.get('/bar/:id',      (req, res) => res.redirect(302, `/api/resolve/bar/${req.params.id}`));
 router.get('/product/:id',  (req, res) => res.redirect(302, `/api/resolve/product/${req.params.id}`));
 router.get('/facility/:id', (req, res) => res.redirect(302, `/api/resolve/facility/${req.params.id}`));
+router.get('/party/:id',    (req, res) => res.redirect(302, `/api/resolve/party/${req.params.id}`));
+
+async function custodyTransferLinks(req, recordType, id) {
+  const transfers = traceabilityContract.getCustodyTransferEvents(recordType, id);
+  return transfers.map((transfer) =>
+    link(
+      `${base(req)}/api/credentials/dte/${recordType}/${id}/custody/${transfer.txHash || transfer.timestamp}`,
+      'dte',
+    ),
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Identity Resolver — RFC 9264 Linksets
@@ -77,18 +96,22 @@ router.get('/facility/:id', (req, res) => res.redirect(302, `/api/resolve/facili
 
 /**
  * GET /api/resolve/ore/:id
- * Returns an RFC 9264 linkset with links to the DTE and (if product exists) DPP.
+ * Returns an RFC 9264 linkset with links to the DTE, DPP, and any custody-transfer DTEs.
  */
 router.get('/resolve/ore/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const anchor = `${base(req)}/api/resolve/ore/${id}`;
+    const transferLinks = await custodyTransferLinks(req, 'ore', id);
 
     const linkset = [{
       anchor,
-      // DTE — extraction event
       'https://vocabulary.uncefact.org/DigitalTraceabilityEvent': [
         link(`${base(req)}/api/credentials/dte/ore/${id}`, 'dte'),
+        ...transferLinks,
+      ],
+      'https://vocabulary.uncefact.org/DigitalProductPassport': [
+        link(`${base(req)}/api/credentials/dpp/ore/${id}`, 'dpp'),
       ],
     }];
 
@@ -101,17 +124,22 @@ router.get('/resolve/ore/:id', async (req, res) => {
 
 /**
  * GET /api/resolve/bar/:id
- * Returns linkset with DTE (refinement transformation) link.
+ * Returns linkset with DTE, DPP, and custody-transfer DTE links.
  */
 router.get('/resolve/bar/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const anchor = `${base(req)}/api/resolve/bar/${id}`;
+    const transferLinks = await custodyTransferLinks(req, 'bar', id);
 
     const linkset = [{
       anchor,
       'https://vocabulary.uncefact.org/DigitalTraceabilityEvent': [
         link(`${base(req)}/api/credentials/dte/bar/${id}`, 'dte'),
+        ...transferLinks,
+      ],
+      'https://vocabulary.uncefact.org/DigitalProductPassport': [
+        link(`${base(req)}/api/credentials/dpp/bar/${id}`, 'dpp'),
       ],
     }];
 
@@ -124,20 +152,45 @@ router.get('/resolve/bar/:id', async (req, res) => {
 
 /**
  * GET /api/resolve/product/:id
- * Returns linkset with DPP and DCC links.
+ * Returns linkset with DPP, DCC, and custody-transfer DTE links.
  */
 router.get('/resolve/product/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const anchor = `${base(req)}/api/resolve/product/${id}`;
+    const transferLinks = await custodyTransferLinks(req, 'product', id);
 
     const linkset = [{
       anchor,
+      'https://vocabulary.uncefact.org/DigitalTraceabilityEvent': transferLinks,
       'https://vocabulary.uncefact.org/DigitalProductPassport': [
         link(`${base(req)}/api/credentials/dpp/product/${id}`, 'dpp'),
       ],
       'https://vocabulary.uncefact.org/DigitalConformityCredential': [
         link(`${base(req)}/api/credentials/dcc/product/${id}`, 'dcc'),
+      ],
+    }];
+
+    res.set('Content-Type', 'application/linkset+json');
+    res.json({ linkset });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/resolve/party/:id
+ * Returns linkset with DIA link.
+ */
+router.get('/resolve/party/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const anchor = `${base(req)}/api/resolve/party/${id}`;
+
+    const linkset = [{
+      anchor,
+      'https://vocabulary.uncefact.org/DigitalIdentityAnchor': [
+        link(`${base(req)}/api/credentials/dia/party/${id}`, 'dia'),
       ],
     }];
 
@@ -207,6 +260,67 @@ router.get('/credentials/dte/bar/:id', async (req, res) => {
   }
 });
 
+/** GET /api/credentials/dte/:recordType/:id/custody/:eventId */
+router.get('/credentials/dte/:recordType/:id/custody/:eventId', async (req, res) => {
+  try {
+    const { recordType, id, eventId } = req.params;
+    const transfer = traceabilityContract.getCustodyTransferEvents(recordType, id)
+      .find((entry) => String(entry.txHash || entry.timestamp) === eventId);
+
+    if (!transfer) {
+      return res.status(404).json({ error: 'Custody transfer event not found' });
+    }
+
+    const vc = await buildDTE_CustodyTransfer({
+      recordType,
+      id,
+      fromAddress: transfer.from,
+      toAddress: transfer.to,
+      timestamp: transfer.timestamp,
+      txHash: transfer.txHash,
+      blockNumber: transfer.blockNumber,
+    }, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
+    res.set('Content-Type', VC_CONTENT_TYPE);
+    res.json(vc);
+  } catch (err) {
+    const status = err.message.includes('not found') ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/** GET /api/credentials/dpp/ore/:id */
+router.get('/credentials/dpp/ore/:id', async (req, res) => {
+  try {
+    const vc = await buildDPP_Ore(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
+    res.set('Content-Type', VC_CONTENT_TYPE);
+    res.json(vc);
+  } catch (err) {
+    const status = err.message.includes('not found') ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/** GET /api/credentials/dpp/bar/:id */
+router.get('/credentials/dpp/bar/:id', async (req, res) => {
+  try {
+    const vc = await buildDPP_Bar(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
+    res.set('Content-Type', VC_CONTENT_TYPE);
+    res.json(vc);
+  } catch (err) {
+    const status = err.message.includes('not found') ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 /** GET /api/credentials/dpp/product/:id */
 router.get('/credentials/dpp/product/:id', async (req, res) => {
   try {
@@ -250,6 +364,24 @@ router.get('/credentials/dfr/facility/:id', async (req, res) => {
     }
 
     const vc = buildDFR_Facility(facility, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
+    res.set('Content-Type', VC_CONTENT_TYPE);
+    res.json(vc);
+  } catch (err) {
+    const status = err.message.includes('not found') ? 404 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/** GET /api/credentials/dia/party/:id */
+router.get('/credentials/dia/party/:id', async (req, res) => {
+  try {
+    const party = await provenanceService.getParty(req.params.id);
+    if (!party) return res.status(404).json({ error: 'Party not found' });
+
+    const vc = buildDIA_Party(party, {
       baseUri: getActiveUntpBaseUri(req),
       did: getActiveUntpDid(req),
     });

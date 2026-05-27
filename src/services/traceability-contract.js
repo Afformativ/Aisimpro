@@ -152,6 +152,8 @@ const CONTRACT_ABI = [
 const METAL = { GOLD: 0, SILVER: 1 };
 const METAL_NAME = ['GOLD', 'SILVER'];
 const RECORD_TYPE = { RAW_ORE: 0, REFINED_BAR: 1, CERTIFIED_PRODUCT: 2 };
+const RECORD_TYPE_BY_KEY = { ore: RECORD_TYPE.RAW_ORE, bar: RECORD_TYPE.REFINED_BAR, product: RECORD_TYPE.CERTIFIED_PRODUCT };
+const RECORD_TYPE_KEY_BY_VALUE = { 0: 'ore', 1: 'bar', 2: 'product' };
 
 // Network presets (mirrors anchoring.js)
 const NETWORKS = {
@@ -184,6 +186,19 @@ const simStore = {
   products: {},   // id → product object
   events: [],     // chronological event list
 };
+
+function recordTypeKey(value) {
+  if (typeof value === 'string' && Object.prototype.hasOwnProperty.call(RECORD_TYPE_BY_KEY, value)) return value;
+  const numeric = Number(value);
+  return RECORD_TYPE_KEY_BY_VALUE[numeric] || null;
+}
+
+function eventTimestampFromRecord(eventType, data, fallback = Math.floor(Date.now() / 1000)) {
+  if (eventType === 'OreExtracted') return Number(data.extractedAt || fallback);
+  if (eventType === 'BarRefined') return Number(data.refinedAt || fallback);
+  if (eventType === 'ProductCertified') return Number(data.certifiedAt || fallback);
+  return Number(data.timestamp || fallback);
+}
 
 class TraceabilityContractService {
   constructor() {
@@ -595,6 +610,62 @@ class TraceabilityContractService {
             newProd++;
           }
         }
+
+        const custodyLogs = await queryWithRetry(this.contract.filters.CustodyTransferred(), start, end, 'Custody');
+        for (const log of custodyLogs) {
+          const a = log.args;
+          const block = await log.getBlock();
+          const normalizedRecordType = recordTypeKey(a[0]);
+          if (!normalizedRecordType) continue;
+          const transfer = {
+            recordType: normalizedRecordType,
+            id: a[1],
+            from: a[2],
+            to: a[3],
+            timestamp: Number(block?.timestamp || Math.floor(Date.now() / 1000)),
+            txHash: log.transactionHash,
+            blockNumber: log.blockNumber,
+          };
+
+          const store = normalizedRecordType === 'ore'
+            ? simStore.ores
+            : normalizedRecordType === 'bar'
+              ? simStore.bars
+              : simStore.products;
+          if (store[transfer.id]) {
+            store[transfer.id].currentCustodian = transfer.to;
+          }
+
+          const duplicate = simStore.events.find((event) =>
+            event.type === 'CustodyTransferred'
+            && event.id === transfer.id
+            && event.txHash === transfer.txHash,
+          );
+
+          if (!duplicate) {
+            simStore.events.push({
+              type: 'CustodyTransferred',
+              id: transfer.id,
+              timestamp: transfer.timestamp,
+              data: transfer,
+              txHash: transfer.txHash,
+            });
+            if (isMongoConnected) {
+              await OnChainEvent.findOneAndUpdate(
+                { entityId: transfer.id, type: 'CustodyTransferred', txHash: transfer.txHash },
+                {
+                  type: 'CustodyTransferred',
+                  entityId: transfer.id,
+                  timestamp: transfer.timestamp,
+                  txHash: transfer.txHash,
+                  blockNumber: transfer.blockNumber,
+                  data: transfer,
+                },
+                { upsert: true },
+              );
+            }
+          }
+        }
       }
 
       // ── Step 4: Update sync cursor ──────────────────────────────
@@ -850,6 +921,25 @@ class TraceabilityContractService {
   listProducts(){ return Object.values(simStore.products).map(p => this._formatProduct(p)); }
   listEvents()  { return simStore.events.map(e => ({ ...e, explorerUrl: this._txLink(e.txHash) })); }
 
+  getCustodyTransferEvents(recordType, id) {
+    const normalizedRecordType = recordTypeKey(recordType);
+    if (!normalizedRecordType) throw new Error(`Unknown record type: ${recordType}`);
+
+    return simStore.events
+      .filter((event) =>
+        event.type === 'CustodyTransferred'
+        && event.id === id
+        && event.data?.recordType === normalizedRecordType,
+      )
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((event) => ({
+        ...event.data,
+        timestamp: event.timestamp,
+        txHash: event.txHash || event.data?.txHash || null,
+        explorerUrl: this._txLink(event.txHash || event.data?.txHash || null),
+      }));
+  }
+
   // ── Formatters ──────────────────────────────────────────────────
   _formatOre(o) {
     const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -1010,6 +1100,95 @@ class TraceabilityContractService {
       computedHash = ethers.keccak256(ethers.concat(pair));
     }
     return computedHash === rec.documentRoot;
+  }
+
+  /**
+   * Transfer custody of an on-chain record to another wallet.
+   * @param {'ore'|'bar'|'product'} recordType
+   * @param {string} id
+   * @param {string} to
+   */
+  async transferCustody(recordType, id, to) {
+    const normalizedRecordType = recordTypeKey(recordType);
+    if (!normalizedRecordType) throw new Error(`Unknown record type: ${recordType}`);
+    const enumValue = RECORD_TYPE_BY_KEY[normalizedRecordType];
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    if (this.isLive) {
+      const callArgs = [enumValue, id, to];
+      const { overrides } = await this._buildSafeTxOverrides('transferCustody', callArgs);
+      const tx = await this.contract.transferCustody(...callArgs, overrides);
+      const receipt = await tx.wait();
+      const gasInfo = this._receiptGasInfo(receipt);
+
+      const store = normalizedRecordType === 'ore'
+        ? simStore.ores
+        : normalizedRecordType === 'bar'
+          ? simStore.bars
+          : simStore.products;
+      const previousCustodian = store[id]?.currentCustodian || this.wallet.address;
+      if (store[id]) {
+        store[id].currentCustodian = to;
+      }
+
+      const eventData = {
+        recordType: normalizedRecordType,
+        id,
+        from: previousCustodian,
+        to,
+        timestamp,
+        txHash: receipt.hash,
+        blockNumber: receipt.blockNumber,
+      };
+      simStore.events.push({ type: 'CustodyTransferred', id, timestamp, data: eventData, txHash: receipt.hash });
+
+      if (mongoose.connection.readyState === 1) {
+        await OnChainEvent.findOneAndUpdate(
+          { entityId: id, type: 'CustodyTransferred', txHash: receipt.hash },
+          {
+            type: 'CustodyTransferred',
+            entityId: id,
+            timestamp,
+            txHash: receipt.hash,
+            blockNumber: receipt.blockNumber,
+            data: eventData,
+          },
+          { upsert: true },
+        );
+      }
+
+      return {
+        recordType: normalizedRecordType,
+        id,
+        from: previousCustodian,
+        to,
+        timestamp,
+        txHash: receipt.hash,
+        explorerUrl: this._txLink(receipt.hash),
+        gasInfo,
+      };
+    }
+
+    const store = normalizedRecordType === 'ore'
+      ? simStore.ores
+      : normalizedRecordType === 'bar'
+        ? simStore.bars
+        : simStore.products;
+    if (!store[id]) throw new Error(`${normalizedRecordType} ${id} not found`);
+
+    const previousCustodian = store[id].currentCustodian;
+    store[id].currentCustodian = to;
+    const txHash = `sim-transfer-${id.slice(0, 10)}-${Date.now().toString(36)}`;
+    const eventData = {
+      recordType: normalizedRecordType,
+      id,
+      from: previousCustodian,
+      to,
+      timestamp,
+      txHash,
+    };
+    simStore.events.push({ type: 'CustodyTransferred', id, timestamp, data: eventData, txHash });
+    return { ...eventData, explorerUrl: null };
   }
 
   // ── UNTP: party DID registry ─────────────────────────────────────

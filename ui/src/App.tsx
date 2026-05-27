@@ -42,6 +42,7 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/change-password" element={<ChangePassword />} />
             <Route path="/vc/ore/:id" element={<UntpCredential />} />
+            <Route path="/vc/dte/:entityType/:id/custody/:eventId" element={<UntpCredential />} />
             <Route path="/vc/:credentialKind/:entityType/:id" element={<UntpCredential />} />
 
             {/* Protected routes — wrapped in Layout + ProtectedRoute */}

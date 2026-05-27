@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Award,
+  Building2,
   CheckCircle,
   Clock,
   ExternalLink,
@@ -12,6 +13,7 @@ import {
   Pickaxe,
   Scale,
   ShieldCheck,
+  User,
 } from 'lucide-react';
 import {
   describeUntpCredential,
@@ -24,6 +26,8 @@ const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
 
 function HeaderIcon({ entityType, kind }: { entityType: string; kind: string }) {
   if (kind === 'dcc') return <ShieldCheck size={28} color="#fff" />;
+  if (kind === 'dfr' || entityType === 'facility') return <Building2 size={28} color="#fff" />;
+  if (kind === 'dia' || entityType === 'party') return <User size={28} color="#fff" />;
   if (entityType === 'ore') return <Pickaxe size={28} color="#fff" />;
   if (entityType === 'bar') return <Flame size={28} color="#fff" />;
   return <Award size={28} color="#fff" />;
@@ -42,7 +46,7 @@ function StatIcon({ label }: { label: string }) {
 }
 
 export default function UntpCredential() {
-  const params = useParams<{ id: string; credentialKind?: string; entityType?: string }>();
+  const params = useParams<{ id: string; credentialKind?: string; entityType?: string; eventId?: string }>();
   const target = resolveUntpRouteTarget(params);
   const [vc, setVc] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);

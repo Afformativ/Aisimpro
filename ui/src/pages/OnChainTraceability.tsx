@@ -57,10 +57,11 @@ function friendlyError(err: Error): string {
 export default function OnChainTraceability() {
   const queryClient = useQueryClient();
   const { hasAnyRole, user } = useAuth();
-  const [activeForm, setActiveForm] = useState<'ore' | 'refine' | 'certify' | null>(null);
+  const [activeForm, setActiveForm] = useState<'ore' | 'refine' | 'certify' | 'transfer' | null>(null);
   const [expandedOre, setExpandedOre] = useState<string | null>(null);
   const [expandedBar, setExpandedBar] = useState<string | null>(null);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [transferRecordType, setTransferRecordType] = useState<'ore' | 'bar' | 'product'>('product');
 
   const [untpTarget, setUntpTarget] = useState<UntpCredentialTarget | null>(null);
 
@@ -68,7 +69,8 @@ export default function OnChainTraceability() {
   const canMine    = hasAnyRole('MINER', 'ADMIN');
   const canRefine  = hasAnyRole('REFINER', 'ADMIN');
   const canCertify = hasAnyRole('ASSAYER', 'ADMIN');
-  const canWrite   = canMine || canRefine || canCertify;
+  const canTransfer = hasAnyRole('DEALER', 'ADMIN');
+  const canWrite   = canMine || canRefine || canCertify || canTransfer;
 
   // ── Queries ──────────────────────────────────────────────────────
   const { data: status } = useQuery<TraceabilityStatus>({
@@ -98,14 +100,33 @@ export default function OnChainTraceability() {
     refetchInterval: 20000,
   });
 
+  const { data: events = [] } = useQuery({
+    queryKey: ['traceability-events'],
+    queryFn: api.getTraceabilityEvents,
+    refetchInterval: 15000,
+  });
+
   // Track the last tx cost to show after mutation
   const [lastTxGas, setLastTxGas] = useState<{ action: string; gasUsed: number; gasPriceGwei: number; txCostPOL: number } | null>(null);
+
+  const latestCustodyEventByRecord = new Map<string, string>();
+  events.forEach((event) => {
+    if (event.type !== 'CustodyTransferred') return;
+    const recordType = typeof event.data?.recordType === 'string' ? event.data.recordType : null;
+    const recordId = typeof event.data?.id === 'string' ? event.data.id : event.id;
+    if (!recordType || !recordId) return;
+    const eventId = typeof event.data?.txHash === 'string' && event.data.txHash
+      ? event.data.txHash
+      : String(event.data?.timestamp || event.timestamp);
+    latestCustodyEventByRecord.set(`${recordType}:${recordId}`, eventId);
+  });
 
   // ── Mutations ────────────────────────────────────────────────────
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['traceability-ores'] });
     queryClient.invalidateQueries({ queryKey: ['traceability-bars'] });
     queryClient.invalidateQueries({ queryKey: ['traceability-products'] });
+    queryClient.invalidateQueries({ queryKey: ['traceability-events'] });
     queryClient.invalidateQueries({ queryKey: ['traceability-status'] });
   };
 
@@ -130,6 +151,14 @@ export default function OnChainTraceability() {
     onSuccess: (data) => {
       invalidateAll(); setActiveForm(null);
       if (data.gasInfo) setLastTxGas({ action: 'Certify Product', ...data.gasInfo });
+    },
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: api.transferTraceabilityCustody,
+    onSuccess: (data) => {
+      invalidateAll(); setActiveForm(null);
+      if (data.gasInfo) setLastTxGas({ action: 'Transfer Custody', ...data.gasInfo });
     },
   });
 
@@ -175,6 +204,22 @@ export default function OnChainTraceability() {
       hallmark: fd.get('hallmark') as string,
       sku: fd.get('sku') as string,
       productType: fd.get('productType') as string,
+    });
+  };
+
+  const transferableRecords = transferRecordType === 'ore'
+    ? ores.map((ore) => ({ id: ore.id, label: `${ore.mineId} — ${ore.metal} (${ore.weightGrams.toLocaleString()} g)` }))
+    : transferRecordType === 'bar'
+      ? bars.map((bar) => ({ id: bar.id, label: `${bar.barSerialNumber} — ${bar.metal} (${bar.outputWeightGrams.toLocaleString()} g)` }))
+      : products.map((product) => ({ id: product.id, label: `${product.hallmark} — ${product.productType} (${product.weightGrams.toLocaleString()} g)` }));
+
+  const handleTransferSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    transferMutation.mutate({
+      recordType: fd.get('recordType') as 'ore' | 'bar' | 'product',
+      id: fd.get('recordId') as string,
+      to: fd.get('toAddress') as string,
     });
   };
 
@@ -350,6 +395,11 @@ export default function OnChainTraceability() {
             <Award size={18} /> Certify → Product
           </button>
         )}
+        {canTransfer && (
+          <button className={`btn ${activeForm === 'transfer' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setActiveForm(activeForm === 'transfer' ? null : 'transfer')} disabled={ores.length + bars.length + products.length === 0}>
+            <Link size={18} /> Transfer Custody
+          </button>
+        )}
         {!canWrite && (
           <span style={{ color: 'var(--text-dim)', fontSize: '0.9rem', padding: '8px 0' }}>
             🔒 You have read-only access to on-chain data
@@ -519,6 +569,49 @@ export default function OnChainTraceability() {
         </div>
       )}
 
+      {activeForm === 'transfer' && canTransfer && (
+        <div className="card form-card">
+          <h3><Link size={20} /> Transfer Custody</h3>
+          <form onSubmit={handleTransferSubmit}>
+            <div className="form-grid">
+              <div className="form-group">
+                <label>Record Type *</label>
+                <select
+                  name="recordType"
+                  value={transferRecordType}
+                  onChange={(e) => setTransferRecordType(e.target.value as 'ore' | 'bar' | 'product')}
+                  required
+                >
+                  <option value="product">Certified Product</option>
+                  <option value="bar">Refined Bar</option>
+                  <option value="ore">Raw Ore</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Select Record *</label>
+                <select name="recordId" required>
+                  <option value="">Choose record…</option>
+                  {transferableRecords.map((record) => (
+                    <option key={record.id} value={record.id}>{record.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group full-width">
+                <label>Destination Wallet *</label>
+                <input name="toAddress" required placeholder="0x..." />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setActiveForm(null)}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={transferMutation.isPending}>
+                {transferMutation.isPending ? 'Transferring…' : 'Transfer Custody'}
+              </button>
+            </div>
+            {transferMutation.isError && <div className="error-message"><AlertTriangle size={14} /> {friendlyError(transferMutation.error as Error)}</div>}
+          </form>
+        </div>
+      )}
+
       {/* ══════════════════ RAW ORES TABLE ═════════════════════ */}
       <div className="card">
         <h3><Pickaxe size={20} /> Raw Ores</h3>
@@ -541,11 +634,30 @@ export default function OnChainTraceability() {
                   <div className="onchain-row-actions">
                     <button
                       className="qr-btn"
-                      title="View UNTP credential QR code"
+                      title="Open ore extraction UNTP event"
                       onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dte', entityType: 'ore', id: ore.id }); }}
                     >
-                      <QrCode size={13} /> UNTP
+                      <QrCode size={13} /> DTE
                     </button>
+                    <button
+                      className="qr-btn"
+                      title="Open ore UNTP passport"
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dpp', entityType: 'ore', id: ore.id }); }}
+                    >
+                      <QrCode size={13} /> DPP
+                    </button>
+                    {latestCustodyEventByRecord.get(`ore:${ore.id}`) && (
+                      <button
+                        className="qr-btn"
+                        title="Open latest ore custody transfer event"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setUntpTarget({ kind: 'dte', entityType: 'ore', id: ore.id, eventId: latestCustodyEventByRecord.get(`ore:${ore.id}`) });
+                        }}
+                      >
+                        <QrCode size={13} /> TX DTE
+                      </button>
+                    )}
                     {ore.explorerUrl && (
                       <a href={ore.explorerUrl} target="_blank" rel="noopener noreferrer" className="anchor-link-inline" onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} /> TX
@@ -602,11 +714,30 @@ export default function OnChainTraceability() {
                   <div className="onchain-row-actions">
                     <button
                       className="qr-btn"
-                      title="View refined bar UNTP credential"
+                      title="Open bar refinement UNTP event"
                       onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dte', entityType: 'bar', id: bar.id }); }}
                     >
-                      <QrCode size={13} /> UNTP
+                      <QrCode size={13} /> DTE
                     </button>
+                    <button
+                      className="qr-btn"
+                      title="Open refined bar UNTP passport"
+                      onClick={e => { e.stopPropagation(); setUntpTarget({ kind: 'dpp', entityType: 'bar', id: bar.id }); }}
+                    >
+                      <QrCode size={13} /> DPP
+                    </button>
+                    {latestCustodyEventByRecord.get(`bar:${bar.id}`) && (
+                      <button
+                        className="qr-btn"
+                        title="Open latest bar custody transfer event"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setUntpTarget({ kind: 'dte', entityType: 'bar', id: bar.id, eventId: latestCustodyEventByRecord.get(`bar:${bar.id}`) });
+                        }}
+                      >
+                        <QrCode size={13} /> TX DTE
+                      </button>
+                    )}
                     {bar.explorerUrl && (
                       <a href={bar.explorerUrl} target="_blank" rel="noopener noreferrer" className="anchor-link-inline" onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} /> TX
@@ -675,6 +806,18 @@ export default function OnChainTraceability() {
                     >
                       <QrCode size={13} /> DCC
                     </button>
+                    {latestCustodyEventByRecord.get(`product:${prod.id}`) && (
+                      <button
+                        className="qr-btn"
+                        title="Open latest product custody transfer event"
+                        onClick={e => {
+                          e.stopPropagation();
+                          setUntpTarget({ kind: 'dte', entityType: 'product', id: prod.id, eventId: latestCustodyEventByRecord.get(`product:${prod.id}`) });
+                        }}
+                      >
+                        <QrCode size={13} /> TX DTE
+                      </button>
+                    )}
                     {prod.explorerUrl && (
                       <a href={prod.explorerUrl} target="_blank" rel="noopener noreferrer" className="anchor-link-inline" onClick={e => e.stopPropagation()}>
                         <ExternalLink size={12} /> TX
@@ -721,7 +864,7 @@ export default function OnChainTraceability() {
           <li><strong>MINER</strong> — can register raw ore extraction at mine sites</li>
           <li><strong>REFINER</strong> — can smelt one or more ores into refined bullion bars</li>
           <li><strong>ASSAYER</strong> — can assay, hallmark, and certify bars for market</li>
-          <li><strong>DEALER</strong> — can transfer custody of certified products</li>
+          <li><strong>DEALER</strong> — can transfer custody of ore, bars, and certified products through UNTP TransactionEvents</li>
           <li><strong>AUDITOR / VIEWER</strong> — read-only access to all on-chain data</li>
           <li><strong>ADMIN / SUPERADMIN</strong> — full access to all operations</li>
           <li>Every entity ID is a <code>keccak256</code> hash of its fields — any auditor can recompute and verify</li>

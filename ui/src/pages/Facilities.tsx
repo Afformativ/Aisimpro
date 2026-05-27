@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, MapPin, User, Building2 } from 'lucide-react';
+import { Plus, MapPin, QrCode, User, Building2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../services/api';
 import type { Facility, Party } from '../types';
 import { FACILITY_TYPES } from '../types';
+import UntpCredentialModal from '../components/UntpCredentialModal';
+import type { UntpCredentialTarget } from '../utils/untpCredentials';
 
 export default function Facilities() {
   const [showForm, setShowForm] = useState(false);
+  const [untpTarget, setUntpTarget] = useState<UntpCredentialTarget | null>(null);
   const queryClient = useQueryClient();
   const { hasAnyRole } = useAuth();
 
@@ -155,7 +158,16 @@ export default function Facilities() {
               )}
             </div>
             <div className="card-footer">
-              <code className="id-code">{facility.facilityId.slice(0, 8)}...</code>
+              <div className="card-footer-meta">
+                <code className="id-code">{facility.facilityId.slice(0, 8)}...</code>
+                <button
+                  className="qr-btn"
+                  title="Open UNTP facility record"
+                  onClick={() => setUntpTarget({ kind: 'dfr', entityType: 'facility', id: facility.facilityId })}
+                >
+                  <QrCode size={13} /> DFR
+                </button>
+              </div>
               <span className="date">{new Date(facility.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
@@ -168,6 +180,7 @@ export default function Facilities() {
           </div>
         )}
       </div>
+      {untpTarget && <UntpCredentialModal target={untpTarget} onClose={() => setUntpTarget(null)} />}
     </div>
   );
 }

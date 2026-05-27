@@ -283,5 +283,7 @@ export interface OnChainEvent {
   type: string;
   id: string;
   timestamp: number;
-  data: OnChainEntity;
+  data: Record<string, unknown>;
+  txHash?: string | null;
+  explorerUrl?: string | null;
 }

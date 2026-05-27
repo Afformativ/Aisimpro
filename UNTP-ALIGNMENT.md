@@ -60,12 +60,12 @@ UNTP defines five credential types.  All use W3C VC JSON-LD format.
 
 | This App | UNTP Credential | Notes |
 |---|---|---|
-| `Party` | Issuer in every credential + `DIA` subject | Needs `did:web` identity |
+| `Party` | Issuer in every credential + `DIA` subject | `DIA` now exposed at `/api/credentials/dia/party/:id` |
 | `Facility` (mine, refinery) | `DFR` | Already has GPS, permits, owner |
 | `RawOre` | `DTE` ObjectEvent (extraction) + `DPP` | First event in chain |
 | `RefinedBar` | `DTE` TransformationEvent (ore → bar) + `DPP` | Multi-input transformation |
 | `CertifiedProduct` | `DPP` (final product) + `DCC` (assayer cert) | Product passport + conformity credential |
-| Batch events (ship/receive/transfer) | `DTE` TransactionEvent | Custody chain |
+| Batch events (ship/receive/transfer) | `DTE` TransactionEvent | Custody chain via `/api/credentials/dte/:recordType/:id/custody/:eventId` |
 | `Document` (assay report, permit) | Evidence attachment inside `DCC` or `DTE` | Document root already on-chain |
 
 ### On-chain field → UNTP field mapping
@@ -432,9 +432,10 @@ Check for:
 | `did:web` issuer identity | ✅ | Server DID document at `/.well-known/did.json` |
 | DTE for extraction events | ✅ | ObjectEvent wrapping `OreExtracted` on-chain data |
 | DTE for transformation events | ✅ | TransformationEvent wrapping `BarRefined` |
-| DPP for certified products | ✅ | Includes traceability + conformity refs |
+| DPP for ore, bars, and certified products | ✅ | Ore/bar/product passport endpoints are exposed |
 | DCC for assay certification | ✅ | Wraps on-chain assay fields + document root |
 | DFR for facilities | ✅ | Wraps off-chain facility record |
+| DIA for parties | ✅ | Party identity anchor endpoint is exposed |
 | RFC 9264 Linkset discovery | ✅ | `/api/resolve/:type/:id` endpoints |
 | On-chain party DID registry | ✅ | `partyDID` mapping in contract |
 | On-chain conformity URI | ✅ | `conformityCredentialURI` on `CertifiedProduct` |

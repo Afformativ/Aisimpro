@@ -26,6 +26,7 @@ const UNTP_DTE_CTX = 'https://test.uncefact.org/vocabulary/untp/dte/0.6.0/';
 const UNTP_DPP_CTX = 'https://test.uncefact.org/vocabulary/untp/dpp/0.6.0/';
 const UNTP_DCC_CTX = 'https://test.uncefact.org/vocabulary/untp/dcc/0.6.0/';
 const UNTP_DFR_CTX = 'https://test.uncefact.org/vocabulary/untp/dfr/0.6.0/';
+const UNTP_DIA_CTX = 'https://test.uncefact.org/vocabulary/untp/dia/0.6.0/';
 
 const METAL_NAMES = { 0: 'GOLD', 1: 'SILVER', GOLD: 'GOLD', SILVER: 'SILVER' };
 const METAL_CODES = { GOLD: 'AU', SILVER: 'AG' };
@@ -278,7 +279,128 @@ export async function buildDTE_BarRefinement(barId, publicConfig = {}) {
   });
 }
 
-export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp }, publicConfig = {}) {
+export async function buildDPP_Ore(oreId, publicConfig = {}) {
+  const ore = await traceabilityContract.getOre(oreId);
+  if (!ore) throw new Error(`Ore not found: ${oreId}`);
+
+  const metalName = METAL_NAMES[ore.metal] || 'GOLD';
+  const metalCode = METAL_CODES[metalName];
+  const oreIdHex = hex(oreId);
+
+  const credentialSubject = {
+    '@context': UNTP_DPP_CTX,
+    type: 'DigitalProductPassport',
+    id: entityURI('ore', oreIdHex, publicConfig),
+    name: `${metalName} Ore — ${ore.mineId}`,
+    description: `Extracted ${metalName.toLowerCase()} ore from ${ore.originCountry}`,
+    registeredId: {
+      id: oreIdHex,
+      scheme: 'urn:goldprov:scheme:onchain-id',
+    },
+    serialNumber: oreIdHex,
+    dimensions: {
+      weight: { value: ore.weightGrams, unit: 'GRM' },
+    },
+    characteristics: {
+      metalCode,
+      mineralType: ore.mineralType,
+      estimatedGrade: ore.estimatedGrade,
+      originCountry: ore.originCountry,
+    },
+    producedByParty: {
+      id: ore.currentCustodian,
+      name: ore.mineId,
+    },
+    productionDate: toISO(ore.extractedAt),
+    traceabilityInformation: [{
+      eventReference: entityURI('ore', oreIdHex, publicConfig),
+      eventType: 'ObjectEvent',
+      verified: true,
+      verifiedRatio: 1.0,
+      tracedTo: 'mine-extraction',
+    }],
+    ...(ore.documentRoot && ore.documentRoot !== `0x${'0'.repeat(64)}` ? {
+      attachments: [{
+        type: 'MerkleDocumentRoot',
+        merkleRoot: ore.documentRoot,
+        manifestCID: ore.evidenceManifestCID || null,
+      }],
+    } : {}),
+  };
+
+  return buildCredential({
+    contexts: [UNTP_DPP_CTX],
+    types: ['DigitalProductPassport'],
+    id: credentialURL(`/api/credentials/dpp/ore/${oreId}`, publicConfig),
+    credentialSubject,
+    issuanceDate: toISO(ore.extractedAt),
+    evidence: buildEvidence(ore),
+    renderPath: `/#/vc/dpp/ore/${oreId}`,
+    publicConfig,
+  });
+}
+
+export async function buildDPP_Bar(barId, publicConfig = {}) {
+  const bar = await traceabilityContract.getBar(barId);
+  if (!bar) throw new Error(`Bar not found: ${barId}`);
+
+  const metalName = METAL_NAMES[bar.metal] || 'GOLD';
+  const metalCode = METAL_CODES[metalName];
+  const fineness = (bar.finenessPPT / 10).toFixed(1);
+
+  const credentialSubject = {
+    '@context': UNTP_DPP_CTX,
+    type: 'DigitalProductPassport',
+    id: entityURI('bar', hex(barId), publicConfig),
+    name: `${metalName} Bar — ${bar.barSerialNumber}`,
+    description: `Refined ${metalName.toLowerCase()} bar with fineness ${fineness}‰`,
+    registeredId: {
+      id: bar.barSerialNumber,
+      scheme: 'urn:goldprov:scheme:bar-serial',
+    },
+    serialNumber: bar.barSerialNumber,
+    dimensions: {
+      weight: { value: bar.outputWeightGrams, unit: 'GRM' },
+    },
+    characteristics: {
+      metalCode,
+      finenessPPT: bar.finenessPPT,
+      fineness: `${fineness}‰`,
+    },
+    producedByParty: {
+      id: bar.currentCustodian,
+      name: bar.refineryId,
+    },
+    productionDate: toISO(bar.refinedAt),
+    traceabilityInformation: (bar.inputOreIds || []).map((oreId) => ({
+      eventReference: entityURI('ore', hex(oreId), publicConfig),
+      eventType: 'ObjectEvent',
+      verified: true,
+      verifiedRatio: 1.0,
+      tracedTo: 'mine-extraction',
+    })),
+    ...(bar.documentRoot && bar.documentRoot !== `0x${'0'.repeat(64)}` ? {
+      attachments: [{
+        type: 'MerkleDocumentRoot',
+        merkleRoot: bar.documentRoot,
+        manifestCID: bar.evidenceManifestCID || null,
+      }],
+    } : {}),
+  };
+
+  return buildCredential({
+    contexts: [UNTP_DPP_CTX],
+    types: ['DigitalProductPassport'],
+    id: credentialURL(`/api/credentials/dpp/bar/${barId}`, publicConfig),
+    credentialSubject,
+    issuanceDate: toISO(bar.refinedAt),
+    evidence: buildEvidence(bar),
+    renderPath: `/#/vc/dpp/bar/${barId}`,
+    publicConfig,
+  });
+}
+
+export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp, txHash, blockNumber }, publicConfig = {}) {
   const credentialSubject = {
     '@context': UNTP_DTE_CTX,
     type: 'TransactionEvent',
@@ -298,9 +420,11 @@ export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, to
   return buildCredential({
     contexts: [UNTP_DTE_CTX],
     types: ['DigitalTraceabilityEvent'],
-    id: credentialURL(`/api/credentials/dte/${recordType.toLowerCase()}/${id}`, publicConfig),
+    id: credentialURL(`/api/credentials/dte/${recordType.toLowerCase()}/${id}/custody/${txHash || timestamp}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(timestamp),
+    evidence: txHash ? buildEvidence({ txHash, blockNumber }) : undefined,
+    renderPath: `/#/vc/dte/${recordType.toLowerCase()}/${id}/custody/${txHash || timestamp}`,
     publicConfig,
   });
 }
@@ -442,6 +566,9 @@ export async function buildDCC_Assay(productId, publicConfig = {}) {
 
 export function buildDFR_Facility(facility, publicConfig = {}) {
   if (!facility) throw new Error('Facility data required');
+  const gps = facility.location?.gps || null;
+  const operatorPartyId = facility.ownerPartyId || facility.operatorPartyId || null;
+  const operatorPartyName = facility.ownerPartyName || facility.operatorPartyName || operatorPartyId;
 
   const credentialSubject = {
     '@context': UNTP_DFR_CTX,
@@ -454,14 +581,16 @@ export function buildDFR_Facility(facility, publicConfig = {}) {
       name: facility.facilityName,
       country: facility.location?.country || facility.country,
       region: facility.location?.region || facility.region,
-      ...(facility.location?.gpsLat != null ? {
-        plusCode: `${facility.location.gpsLat},${facility.location.gpsLng}`,
+      ...(gps?.lat != null && gps?.lng != null ? {
+        plusCode: `${gps.lat},${gps.lng}`,
       } : {}),
     },
-    operatedByParty: {
-      id: `urn:goldprov:party:${facility.ownerPartyId}`,
-      name: facility.ownerPartyName || facility.ownerPartyId,
-    },
+    ...(operatorPartyId ? {
+      operatedByParty: {
+        id: `urn:goldprov:party:${operatorPartyId}`,
+        name: operatorPartyName,
+      },
+    } : {}),
     registeredIdentifiers: [
       ...(facility.identifiers?.permitIds || []).map(id => ({
         id,
@@ -481,6 +610,38 @@ export function buildDFR_Facility(facility, publicConfig = {}) {
     id: credentialURL(`/api/credentials/dfr/facility/${facility.facilityId}`, publicConfig),
     credentialSubject,
     issuanceDate: facility.createdAt || new Date().toISOString(),
+    renderPath: `/#/vc/dfr/facility/${facility.facilityId}`,
+    publicConfig,
+  });
+}
+
+export function buildDIA_Party(party, publicConfig = {}) {
+  if (!party) throw new Error('Party data required');
+
+  const partyDid = `${serverDID(publicConfig)}:parties:${party.partyId}`;
+  const credentialSubject = {
+    '@context': UNTP_DIA_CTX,
+    type: ['RegisteredIdentity'],
+    id: partyDid,
+    name: party.legalName,
+    registeredId: party.registrationId || party.partyId,
+    idScheme: {
+      type: ['IdentifierScheme'],
+      id: 'urn:goldprov:scheme:party-registration',
+      name: 'Gold Provenance Party Registration',
+    },
+    registerType: 'Business',
+    registrationScopeList: [party.country].filter(Boolean),
+    partyType: party.partyType,
+  };
+
+  return buildCredential({
+    contexts: [UNTP_DIA_CTX],
+    types: ['DigitalIdentityAnchor'],
+    id: credentialURL(`/api/credentials/dia/party/${party.partyId}`, publicConfig),
+    credentialSubject,
+    issuanceDate: party.createdAt || new Date().toISOString(),
+    renderPath: `/#/vc/dia/party/${party.partyId}`,
     publicConfig,
   });
 }

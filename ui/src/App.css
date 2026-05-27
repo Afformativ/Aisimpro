@@ -259,6 +259,13 @@ body {
   border-top: 1px solid var(--border);
 }
 
+.card-footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .id-code {
   font-family: 'Monaco', 'Menlo', monospace;
   font-size: 11px;
