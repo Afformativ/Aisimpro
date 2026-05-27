@@ -177,7 +177,8 @@ product record without trusting any off-chain index.
 ### 4.2 UNTP Credential Generator (`src/services/untp-credentials.js`)
 
 Reads on-chain data from `GoldSilverTraceability` and wraps it in
-W3C VC JSON-LD envelopes that conform to the UNTP schemas.
+W3C VC JSON-LD claims that are then issued as JOSE-enveloped VC-JWTs
+that conform to the UNTP schemas.
 
 Produces four credential types:
 
@@ -187,8 +188,9 @@ Produces four credential types:
 - **`buildDCC_Assay(productId)`** → Digital Conformity Credential
 - **`buildDFR_Facility(facilityId)`** → Digital Facility Record
 
-Each credential is signed with a compact JWT proof (JOSE) using the
-server private key, making it independently verifiable.
+Each credential is signed as a compact VC-JWT using an Ed25519 key,
+published in the issuer DID document, and linked to a W3C Bitstring
+Status List entry for revocation.
 
 ### 4.3 Identity Resolver API (`src/routes/untp.js`)
 
@@ -279,11 +281,16 @@ curl http://localhost:3000/api/credentials/dte/ore/<oreId> | jq .
 
 Check that the response contains:
 - `@context` includes `https://www.w3.org/ns/credentials/v2`
-- `type` includes `VerifiableCredential` and `DigitalTraceabilityEvent`
+- top-level `type` is `EnvelopedVerifiableCredential`
+- `id` starts with `data:application/vc+jwt,`
+
+Decode the JWT payload and check that:
+
+- `type` includes `DigitalTraceabilityEvent` and `VerifiableCredential`
 - `issuer.id` is a `did:web:...` URI
-- `credentialSubject.id` is a `urn:goldprov:ore:...` URI
+- `credentialSubject.id` is a resolvable ore URI
 - `credentialSubject.eventTime` is an ISO 8601 timestamp
-- `proof` object present (JWT compact proof)
+- `credentialStatus.type` is `BitstringStatusListEntry`
 
 ### Step 5 — Fetch a Digital Product Passport
 
@@ -431,10 +438,10 @@ Check for:
 | RFC 9264 Linkset discovery | ✅ | `/api/resolve/:type/:id` endpoints |
 | On-chain party DID registry | ✅ | `partyDID` mapping in contract |
 | On-chain conformity URI | ✅ | `conformityCredentialURI` on `CertifiedProduct` |
-| Credential proof (JWT) | ✅ | JOSE compact proof with server key |
+| Credential proof (JWT) | ✅ | JOSE VC-JWT envelope signed with Ed25519 |
 | UNTP test suite validation | 🔲 | Run manually — see Step 6 above |
 | Production `did:web` domain | 🔲 | Set `UNTP_DID` and `UNTP_BASE_URI` env vars |
-| Credential revocation | 🔲 | W3C Bitstring Status List — future work |
+| Credential revocation | ✅ | W3C Bitstring Status List endpoint + revocation control |
 
 ---
 

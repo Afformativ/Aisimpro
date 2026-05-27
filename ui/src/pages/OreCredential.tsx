@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { CheckCircle, MapPin, Scale, Pickaxe, ExternalLink, ShieldCheck, Hash, Clock, User } from 'lucide-react';
+import { decodeCredentialDocument } from '../utils/envelopedVc';
 
 const API_BASE = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000/api`;
 const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
@@ -56,19 +57,19 @@ export default function OreCredential() {
     </div>
   );
 
-  const subject = vc.credentialSubject || {};
-  const issuer = typeof vc.issuer === 'object' ? vc.issuer : { id: vc.issuer, name: vc.issuer };
+  const { claims, header } = decodeCredentialDocument(vc);
+  const subject = claims?.credentialSubject || {};
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer, name: claims?.issuer };
   const epcItem = subject.epcList?.[0] || {};
   const readPoint = subject.readPoint || {};
   const ilmd = subject.ilmd || {};
-  const evidence = vc.evidence?.[0] || {};
-  const proof = vc.proof || {};
+  const evidence = claims?.evidence?.[0] || {};
   const metalCode = epcItem.metalCode || ilmd.metalCode || 'AU';
   const metalColor = METAL_COLOR[metalCode] || '#d4af37';
   const metalName = metalCode === 'AU' || metalCode === 'GOLD' ? 'Gold' : metalCode === 'AG' || metalCode === 'SILVER' ? 'Silver' : metalCode;
   const weightVal = epcItem.weight?.value;
   const weightUnit = epcItem.weight?.unit || 'GRM';
-  const issuedDate = vc.validFrom || vc.issuanceDate;
+  const issuedDate = claims?.validFrom || claims?.issuanceDate;
 
   return (
     <div className="vc-page">
@@ -168,16 +169,15 @@ export default function OreCredential() {
 
           <div className="vc-section vc-section-proof">
             <div className="vc-section-title"><ShieldCheck size={15} /> Proof</div>
-            <Field label="Type" value={proof.type} />
-            <Field label="Suite" value={proof.cryptosuite} />
-            <Field label="Created" value={proof.created ? new Date(proof.created).toLocaleString() : null} />
-            <Field label="Purpose" value={proof.proofPurpose} />
-            <Field label="Verification Method" value={proof.verificationMethod} mono />
+            <Field label="Type" value={vc.type} />
+            <Field label="Suite" value={header?.typ || 'vc+jwt'} />
+            <Field label="Algorithm" value={header?.alg} />
+            <Field label="Key ID" value={header?.kid} mono />
           </div>
 
           <div className="vc-section vc-section-id">
             <div className="vc-section-title"><Hash size={15} /> Credential ID</div>
-            <code className="vc-id-code">{vc.id}</code>
+            <code className="vc-id-code">{claims?.id || vc.id}</code>
           </div>
 
         </div>

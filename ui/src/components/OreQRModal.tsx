@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { X, ExternalLink, Download, Copy, CheckCircle } from 'lucide-react';
+import { decodeCredentialDocument } from '../utils/envelopedVc';
 
 interface OreQRModalProps {
   oreId: string;
@@ -75,9 +76,10 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
 
   // Pull out the interesting UNTP fields from the credential
   const vc = credential as any;
-  const subject = vc?.credentialSubject;
+  const { claims, header } = decodeCredentialDocument(vc);
+  const subject = claims?.credentialSubject;
   const events: any[] = subject?.traceabilityEvent || subject?.event ? [subject?.event] : [];
-  const issuer = typeof vc?.issuer === 'object' ? vc.issuer : { id: vc?.issuer };
+  const issuer = typeof claims?.issuer === 'object' ? claims.issuer : { id: claims?.issuer };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -118,9 +120,10 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
             {credential && !loading && (
               <>
                 <div className="qr-section">
-                  <div className="qr-field"><span className="detail-label">Type</span>{vc?.type?.join(', ') || '—'}</div>
+                  <div className="qr-field"><span className="detail-label">Type</span>{Array.isArray(claims?.type) ? claims.type.join(', ') : claims?.type || vc?.type || '—'}</div>
                   <div className="qr-field"><span className="detail-label">Issuer</span>{issuer?.name || issuer?.id || '—'}</div>
-                  <div className="qr-field"><span className="detail-label">Issued</span>{vc?.validFrom || vc?.issuanceDate || '—'}</div>
+                  <div className="qr-field"><span className="detail-label">Issued</span>{claims?.validFrom || claims?.issuanceDate || '—'}</div>
+                  <div className="qr-field"><span className="detail-label">Algorithm</span>{header?.alg || '—'}</div>
                 </div>
 
                 {subject && (

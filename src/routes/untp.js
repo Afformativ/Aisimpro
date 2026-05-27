@@ -12,14 +12,16 @@
  *     GET /api/credentials/dpp/product/:id
  *     GET /api/credentials/dcc/product/:id
  *     GET /api/credentials/dfr/facility/:id
+ *     GET /api/credentials/status/bitstring-status-list/:statusPurpose
  *
  *   DID Documents
  *     GET /.well-known/did.json            (server-level, mounted by api.js)
  *     GET /api/parties/:partyId/did.json   (party-level)
  *
- *   On-chain UNTP writes (require auth)
- *     POST /api/untp/party-did
- *     POST /api/untp/conformity-credential
+  *   On-chain UNTP writes (require auth)
+  *     POST /api/untp/party-did
+  *     POST /api/untp/conformity-credential
+ *     POST /api/untp/credential-status
  */
 
 import { Router } from 'express';
@@ -30,10 +32,12 @@ import {
   buildDCC_Assay,
   buildDFR_Facility,
   buildDIDDocument,
+  buildStatusListCredential,
 } from '../services/untp-credentials.js';
 import traceabilityContract from '../services/traceability-contract.js';
 import provenanceService from '../services/provenance.js';
 import { requireAuth, requireAnyRole } from '../auth/guards.js';
+import { setCredentialRevocation, getCredentialStatusEntry } from '../services/untp-status-list.js';
 
 const router = Router();
 
@@ -241,6 +245,17 @@ router.get('/credentials/dfr/facility/:id', async (req, res) => {
   }
 });
 
+/** GET /api/credentials/status/bitstring-status-list/:statusPurpose */
+router.get('/credentials/status/bitstring-status-list/:statusPurpose', async (req, res) => {
+  try {
+    const vc = buildStatusListCredential(req.params.statusPurpose || 'revocation');
+    res.set('Content-Type', VC_CONTENT_TYPE);
+    res.json(vc);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DID Documents — party-level
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,6 +326,39 @@ router.post('/untp/base-uri', requireAuth, requireAnyRole('ADMIN'), async (req, 
     if (!uri) return res.status(400).json({ error: 'uri is required' });
     const result = await traceabilityContract.setBaseURI(uri);
     res.status(201).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/untp/credential-status
+ * Toggle revocation state for a previously issued credential.
+ * Body: { credentialId: "https://...", revoked: true|false }
+ */
+router.post('/untp/credential-status', requireAuth, requireAnyRole('ADMIN', 'SUPERADMIN'), async (req, res) => {
+  try {
+    const { credentialId, revoked = true } = req.body;
+    if (!credentialId) return res.status(400).json({ error: 'credentialId is required' });
+    const result = setCredentialRevocation(credentialId, Boolean(revoked));
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/untp/credential-status
+ * Query the current revocation record for a credential.
+ * Query: ?credentialId=https://...
+ */
+router.get('/untp/credential-status', requireAuth, requireAnyRole('ADMIN', 'SUPERADMIN'), async (req, res) => {
+  try {
+    const { credentialId } = req.query;
+    if (!credentialId) return res.status(400).json({ error: 'credentialId is required' });
+    const status = getCredentialStatusEntry(String(credentialId));
+    if (!status) return res.status(404).json({ error: 'Credential status not found' });
+    res.json(status);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -105,7 +105,14 @@ Important production requirements:
 - Set `VITE_API_URL` on the static site to the backend API URL, for example `https://gold-provenance-api.onrender.com/api`.
 - Set `UNTP_BASE_URI` to the backend public base URL.
 - Set `UNTP_DID` to the matching `did:web:` identifier for that backend domain.
+- Optionally set `UNTP_RENDER_BASE_URI` to the public frontend URL if you want `renderMethod` links in issued credentials.
 - Use `BOOTSTRAP_ENABLE=true` only for the first deploy that creates the initial superadmin, then switch it back to `false`.
+
+UNTP production notes:
+
+- Credentials are issued as JOSE-enveloped `vc+jwt` VCs.
+- The app generates and persists an Ed25519 signing key in `DATA_DIR/untp-signing-key.jwk` unless you provide `UNTP_SIGNING_PRIVATE_JWK` or `UNTP_SIGNING_PRIVATE_PEM`.
+- Credential revocation uses a W3C Bitstring Status List exposed under `/api/credentials/status/bitstring-status-list/revocation`.
 
 Minimal Render setup:
 

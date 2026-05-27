@@ -63,6 +63,8 @@ services:
         value: "500"
       - key: PRIVATE_KEY
         sync: false
+      - key: TRACEABILITY_CONTRACT_ADDRESS
+        sync: false
       - key: CONTRACT_ADDRESS
         value: "0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19"
       - key: POLYGON_RPC
@@ -81,6 +83,10 @@ services:
         sync: false
       - key: UNTP_ISSUER_NAME
         value: Gold Provenance System
+      - key: UNTP_RENDER_BASE_URI
+        sync: false
+      - key: UNTP_STATUS_LIST_BITS
+        value: "131072"
     disk:
       name: gold-provenance-data
       mountPath: /opt/render/project/src/data
