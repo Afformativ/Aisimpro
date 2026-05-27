@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../contexts/AuthContext';
-import { Users, Shield, UserPlus, Mail, Calendar, Loader } from 'lucide-react';
+import { Users, Shield, Mail, Calendar, Loader } from 'lucide-react';
 import type { AuthUser, UserRole } from '../types/auth';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';

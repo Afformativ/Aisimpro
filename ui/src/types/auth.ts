@@ -9,11 +9,13 @@ export interface AuthUser {
   firstName?: string;
   lastName?: string;
   roles: UserRole[];
+  isEmailVerified: boolean;
   isActive: boolean;
   mustChangePassword: boolean;
   lastLoginAt?: string;
   partyId?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface LoginResponse {

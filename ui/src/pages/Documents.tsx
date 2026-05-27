@@ -1,39 +1,14 @@
 import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, FileText, Lock, Eye, Hash, Upload, Link, ShieldCheck, CheckCircle, XCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { Plus, FileText, Lock, Eye, Hash, Upload, Link, ShieldCheck, CheckCircle, XCircle, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../services/api';
-import type { Document, OnChainOre, OnChainBar, OnChainProduct } from '../types';
+import type { Document, OnChainEntity, OnChainOre, OnChainBar, OnChainProduct } from '../types';
 import { DOCUMENT_TYPES } from '../types';
-
-// ── Minimal browser-side Merkle tree (keccak256, sorted-pair) ─────
-// Mirrors OpenZeppelin MerkleProof.verify logic: sorted pairs, keccak256
 
 async function sha256Hex(data: ArrayBuffer): Promise<string> {
   const hashBuf = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function keccak256(hexData: string): string {
-  // Use ethers-compatible keccak256 via a tiny inline implementation
-  // We'll compute it server-side for anchoring; client uses SHA-256 for file hashing
-  // For leaf/tree computation we send to the API
-  return hexData; // placeholder — real Merkle ops happen via API
-}
-
-// Build Merkle tree from leaf hex strings (sorted-pair keccak256)
-// Returns { root, proofs } where proofs[i] = proof for leaves[i]
-function buildMerkleTree(leaves: string[]): { root: string; proofs: string[][] } {
-  if (leaves.length === 0) return { root: '', proofs: [] };
-  if (leaves.length === 1) return { root: leaves[0], proofs: [[]] };
-
-  // We'll use a simple approach: compute the tree layer by layer
-  // For browser, we use SubtleCrypto-based hashing
-  // But since we need keccak256 (not SHA-256) to match Solidity,
-  // we'll handle the real tree computation server-side and just
-  // send the file hashes + metadata to the backend.
-  // This stub is for UI state management.
-  return { root: leaves[0], proofs: leaves.map(() => []) };
 }
 
 interface FileWithHash {
@@ -233,6 +208,16 @@ export default function Documents() {
     : products;
 
   const shortId = (id: string) => id.length > 16 ? `${id.slice(0, 10)}…${id.slice(-4)}` : id;
+  const getRecordLabel = (record: OnChainEntity) => {
+    switch (record.stage) {
+      case 'RAW_ORE':
+        return record.mineId;
+      case 'REFINED_BAR':
+        return record.barSerialNumber;
+      case 'CERTIFIED_PRODUCT':
+        return record.hallmark;
+    }
+  };
 
   return (
     <div className="page">
@@ -287,13 +272,9 @@ export default function Documents() {
               <label>Link to Record *</label>
               <select value={anchorRecordId} onChange={e => setAnchorRecordId(e.target.value)} required>
                 <option value="">— Select {anchorRecordType} —</option>
-                {recordOptions.map((r: OnChainOre | OnChainBar | OnChainProduct) => (
+                {recordOptions.map((r: OnChainEntity) => (
                   <option key={r.id} value={r.id}>
-                    {shortId(r.id)} — {
-                      'barSerialNumber' in r ? r.barSerialNumber :
-                      'mineId' in r ? r.mineId :
-                      'hallmark' in r ? r.hallmark : r.id
-                    }
+                    {shortId(r.id)} — {getRecordLabel(r)}
                   </option>
                 ))}
               </select>
