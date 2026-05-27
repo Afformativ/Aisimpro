@@ -2582,3 +2582,225 @@ body {
   .qr-modal-body { flex-direction: column; }
   .qr-modal-left { width: 100%; }
 }
+
+/* ── Ore Credential Viewer (public, no login) ──────────────────── */
+.vc-page {
+  min-height: 100vh;
+  background: #0f0f13;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px 64px;
+}
+
+.vc-card {
+  background: #1a1a24;
+  border: 1px solid #2a2a3a;
+  border-radius: 16px;
+  max-width: 680px;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.5);
+}
+
+.vc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 28px 28px 20px;
+  border-bottom: 3px solid;
+  background: rgba(255,255,255,0.02);
+}
+
+.vc-header-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vc-header-text { flex: 1; }
+
+.vc-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.vc-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 4px;
+}
+
+.vc-subtitle {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin: 0;
+}
+
+.vc-verified-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #38a169;
+  background: rgba(56,161,105,0.1);
+  border: 1px solid rgba(56,161,105,0.3);
+  border-radius: 20px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vc-stats {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #2a2a3a;
+}
+
+.vc-stat {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  border-right: 1px solid #2a2a3a;
+}
+
+.vc-stat:last-child { border-right: none; }
+
+.vc-stat-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.vc-stat-label {
+  font-size: 0.72rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vc-sections { padding: 20px 28px; display: flex; flex-direction: column; gap: 16px; }
+
+.vc-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid #2a2a3a;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.vc-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.vc-field {
+  display: flex;
+  gap: 12px;
+  font-size: 0.88rem;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  align-items: baseline;
+}
+
+.vc-field:last-child { border-bottom: none; }
+
+.vc-field-label {
+  min-width: 130px;
+  flex-shrink: 0;
+  color: #888;
+  font-size: 0.82rem;
+}
+
+.vc-field-value { color: #e0e0e0; }
+
+.vc-field-mono {
+  color: #a0c4ff;
+  font-family: monospace;
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
+.vc-explorer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: #63b3ed;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.vc-explorer-link:hover { text-decoration: underline; }
+
+.vc-section-proof { opacity: 0.75; }
+
+.vc-section-id { }
+
+.vc-id-code {
+  font-size: 0.75rem;
+  color: #888;
+  word-break: break-all;
+  display: block;
+}
+
+.vc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 28px;
+  border-top: 1px solid #2a2a3a;
+  font-size: 0.78rem;
+  color: #666;
+  flex-wrap: wrap;
+}
+
+.vc-footer a {
+  color: #63b3ed;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+}
+
+.vc-loading, .vc-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 80px 32px;
+  color: #888;
+  text-align: center;
+}
+
+.vc-error h2 { color: #e53e3e; margin: 0; }
+
+@media (max-width: 540px) {
+  .vc-header { flex-wrap: wrap; }
+  .vc-verified-badge { width: 100%; justify-content: center; }
+  .vc-stats { flex-direction: column; }
+  .vc-stat { border-right: none; border-bottom: 1px solid #2a2a3a; }
+  .vc-stat:last-child { border-bottom: none; }
+  .vc-sections { padding: 16px; }
+  .vc-field { flex-direction: column; gap: 2px; }
+  .vc-field-label { min-width: unset; }
+  .vc-footer { flex-direction: column; align-items: flex-start; }
+}

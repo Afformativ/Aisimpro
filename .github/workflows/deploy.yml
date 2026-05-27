@@ -36,8 +36,10 @@ jobs:
         working-directory: ui
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-          VITE_API_URL: ${{ vars.API_URL || 'https://gold-provenance-api.onrender.com/api' }}
-        run: npm run build
+          VITE_API_URL: ${{ vars.API_URL != '' && vars.API_URL || 'https://gold-provenance-api.onrender.com/api' }}
+        run: |
+          echo "Building with VITE_API_URL=$VITE_API_URL"
+          npm run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

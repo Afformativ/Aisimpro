@@ -14,9 +14,11 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Derive the server base from VITE_API_URL (set per-environment) so the QR
-  // encodes the correct public URL on Render/GitHub Pages, and the LAN IP
-  // when running locally via --host.
+  // QR points to the human-readable viewer page (public, no login needed).
+  // Uses the current page's origin so it works on GitHub Pages, Render, and LAN.
+  const viewerUrl = `${window.location.origin}${window.location.pathname}#/vc/ore/${oreId}`;
+
+  // Raw API URL used internally to fetch the credential data to display.
   const apiBase = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000/api`;
   const serverBase = apiBase.replace(/\/api\/?$/, '');
   const credentialUrl = `${serverBase}/api/credentials/dte/ore/${oreId}`;
@@ -49,24 +51,24 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    QRCode.toCanvas(canvasRef.current, credentialUrl, {
+    QRCode.toCanvas(canvasRef.current, viewerUrl, {
       width: 220,
       margin: 2,
       color: { dark: '#1a1a1a', light: '#ffffff' },
     });
-  }, [credentialUrl]);
+  }, [viewerUrl]);
 
   const handleDownload = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = `ore-dte-${oreId.slice(0, 12)}.png`;
+    link.download = `ore-vc-${oreId.slice(0, 12)}.png`;
     link.href = canvas.toDataURL();
     link.click();
   };
 
   const handleCopyUrl = async () => {
-    await navigator.clipboard.writeText(credentialUrl);
+    await navigator.clipboard.writeText(viewerUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -100,7 +102,7 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
               </button>
               <a
                 className="btn btn-secondary btn-sm"
-                href={credentialUrl}
+                href={viewerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -150,8 +152,8 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
                 )}
 
                 <div className="qr-section">
-                  <div className="qr-section-title">Credential URL</div>
-                  <code className="qr-url">{credentialUrl}</code>
+                  <div className="qr-section-title">Viewer URL</div>
+                  <code className="qr-url">{viewerUrl}</code>
                 </div>
               </>
             )}

@@ -18,6 +18,7 @@ import Register from './pages/Register';
 import ChangePassword from './pages/ChangePassword';
 import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
+import OreCredential from './pages/OreCredential';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -35,10 +36,11 @@ function App() {
       <AuthProvider>
         <HashRouter>
           <Routes>
-            {/* Public routes — no layout */}
+            {/* Public routes — no layout, no auth */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/change-password" element={<ChangePassword />} />
+            <Route path="/vc/ore/:id" element={<OreCredential />} />
 
             {/* Protected routes — wrapped in Layout + ProtectedRoute */}
             <Route
