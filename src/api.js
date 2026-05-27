@@ -44,20 +44,26 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
-// Global rate limiter (100 req / 15 min per IP)
+const AUTH_RATE_LIMIT_PATHS = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+]);
+
+// Global rate limiter (2500 req / 15 min per IP by default)
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || '500', 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX || '2500', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
+  skip: (req) => AUTH_RATE_LIMIT_PATHS.has((req.originalUrl || '').split('?')[0]),
 });
 app.use('/api/', globalLimiter);
 
-// Strict auth rate limiter (10 attempts / 15 min per IP)
+// Auth rate limiter (50 attempts / 15 min per IP by default)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '50', 10),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many authentication attempts, please try again later' },
