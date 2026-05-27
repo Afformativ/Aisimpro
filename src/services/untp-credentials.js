@@ -18,6 +18,7 @@ import {
   ensureCredentialStatus,
   getStatusListCredentialMetadata,
 } from './untp-status-list.js';
+import { didFromBase, getConfiguredUntpBaseUri } from './untp-public-url.js';
 
 const VC_CONTEXT_V2 = 'https://www.w3.org/ns/credentials/v2';
 const STATUS_CONTEXT_V1 = 'https://www.w3.org/ns/credentials/status/v1';
@@ -29,33 +30,26 @@ const UNTP_DFR_CTX = 'https://test.uncefact.org/vocabulary/untp/dfr/0.6.0/';
 const METAL_NAMES = { 0: 'GOLD', 1: 'SILVER', GOLD: 'GOLD', SILVER: 'SILVER' };
 const METAL_CODES = { GOLD: 'AU', SILVER: 'AG' };
 
-function baseUri() {
-  return (process.env.UNTP_BASE_URI || 'http://localhost:3000').replace(/\/$/, '');
+function baseUri(options = {}) {
+  return (options.baseUri || getConfiguredUntpBaseUri()).replace(/\/$/, '');
 }
 
-function deriveDidFromBaseUri() {
-  try {
-    const url = new URL(baseUri());
-    const host = url.hostname.replace(/\./g, ':');
-    const path = url.pathname.replace(/^\/+|\/+$/g, '');
-    return path ? `did:web:${host}:${path.replace(/\//g, ':')}` : `did:web:${host}`;
-  } catch {
-    return 'did:web:localhost';
-  }
+function deriveDidFromBaseUri(baseUriValue) {
+  return didFromBase(baseUriValue);
 }
 
-function serverDID() {
-  return process.env.UNTP_DID || deriveDidFromBaseUri();
+function serverDID(options = {}) {
+  return options.did || process.env.UNTP_DID || deriveDidFromBaseUri(baseUri(options));
 }
 
 function issuerName() {
   return process.env.UNTP_ISSUER_NAME || 'Gold Provenance System';
 }
 
-function credentialIssuer() {
+function credentialIssuer(options = {}) {
   return {
     type: ['CredentialIssuer'],
-    id: serverDID(),
+    id: serverDID(options),
     name: issuerName(),
   };
 }
@@ -71,13 +65,13 @@ function hex(b) {
   return b.startsWith('0x') ? b : `0x${b}`;
 }
 
-function entityURI(type, hexId) {
+function entityURI(type, hexId, options = {}) {
   const trimmedId = (hexId.startsWith('0x') ? hexId.slice(2) : hexId);
-  return `${baseUri()}/${type}/${trimmedId}`;
+  return `${baseUri(options)}/${type}/${trimmedId}`;
 }
 
-function credentialURL(pathname) {
-  return `${baseUri()}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+function credentialURL(pathname, options = {}) {
+  return `${baseUri(options)}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
 function maybeValidUntil(validFrom) {
@@ -88,8 +82,8 @@ function maybeValidUntil(validFrom) {
   return until.toISOString();
 }
 
-function maybeRenderMethod(renderPath) {
-  const renderBase = process.env.UNTP_RENDER_BASE_URI;
+function maybeRenderMethod(renderPath, options = {}) {
+  const renderBase = options.renderBaseUri || process.env.UNTP_RENDER_BASE_URI;
   if (!renderBase || !renderPath) return undefined;
 
   const trimmed = renderBase.replace(/\/$/, '');
@@ -105,10 +99,10 @@ function base64urlJson(value) {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
-function signVcJwt(payload) {
+function signVcJwt(payload, options = {}) {
   const protectedHeader = {
     alg: 'EdDSA',
-    kid: getUntpKeyId(serverDID()),
+    kid: getUntpKeyId(serverDID(options)),
     cty: 'vc',
     typ: 'vc+jwt',
   };
@@ -146,23 +140,24 @@ function buildCredential({
   issuanceDate,
   evidence,
   renderPath,
+  publicConfig = {},
 }) {
   const validFrom = issuanceDate || new Date().toISOString();
-  const credentialStatus = ensureCredentialStatus(id);
+  const credentialStatus = ensureCredentialStatus(id, 'revocation', { baseUri: publicConfig.baseUri });
   const claims = {
     '@context': [VC_CONTEXT_V2, ...contexts],
     type: [...types, 'VerifiableCredential'],
     id,
-    issuer: credentialIssuer(),
+    issuer: credentialIssuer(publicConfig),
     validFrom,
     credentialSubject,
     credentialStatus,
     ...(evidence ? { evidence } : {}),
     ...(maybeValidUntil(validFrom) ? { validUntil: maybeValidUntil(validFrom) } : {}),
-    ...(maybeRenderMethod(renderPath) ? { renderMethod: maybeRenderMethod(renderPath) } : {}),
+    ...(maybeRenderMethod(renderPath, publicConfig) ? { renderMethod: maybeRenderMethod(renderPath, publicConfig) } : {}),
   };
 
-  return envelopJwt(signVcJwt(claims), contexts);
+  return envelopJwt(signVcJwt(claims, publicConfig), contexts);
 }
 
 export function decodeEnvelopedCredential(envelopedCredential) {
@@ -175,22 +170,22 @@ export function decodeEnvelopedCredential(envelopedCredential) {
   return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
 }
 
-export function buildStatusListCredential(statusPurpose = 'revocation') {
-  const metadata = getStatusListCredentialMetadata(statusPurpose);
+export function buildStatusListCredential(statusPurpose = 'revocation', publicConfig = {}) {
+  const metadata = getStatusListCredentialMetadata(statusPurpose, { baseUri: publicConfig.baseUri });
   const validFrom = new Date().toISOString();
   const claims = {
     '@context': [VC_CONTEXT_V2, STATUS_CONTEXT_V1],
     id: metadata.id,
     type: metadata.type,
-    issuer: credentialIssuer(),
+    issuer: credentialIssuer(publicConfig),
     validFrom,
     credentialSubject: metadata.credentialSubject,
     ...(maybeValidUntil(validFrom) ? { validUntil: maybeValidUntil(validFrom) } : {}),
   };
-  return envelopJwt(signVcJwt(claims), [STATUS_CONTEXT_V1]);
+  return envelopJwt(signVcJwt(claims, publicConfig), [STATUS_CONTEXT_V1]);
 }
 
-export async function buildDTE_OreExtraction(oreId) {
+export async function buildDTE_OreExtraction(oreId, publicConfig = {}) {
   const ore = await traceabilityContract.getOre(oreId);
   if (!ore) throw new Error(`Ore not found: ${oreId}`);
 
@@ -200,14 +195,14 @@ export async function buildDTE_OreExtraction(oreId) {
   const credentialSubject = {
     '@context': UNTP_DTE_CTX,
     type: 'ObjectEvent',
-    id: entityURI('ore', hex(oreId)),
+    id: entityURI('ore', hex(oreId), publicConfig),
     eventTime: toISO(ore.extractedAt),
     action: 'ADD',
     disposition: 'active',
     bizStep: 'urn:epcglobal:cbv:bizstep:commissioning',
     bizLocation: ore.mineId,
     epcList: [{
-      id: entityURI('ore', hex(oreId)),
+      id: entityURI('ore', hex(oreId), publicConfig),
       name: `${metalName} Ore — ${ore.mineId}`,
       metalCode,
       weight: { value: ore.weightGrams, unit: 'GRM' },
@@ -231,15 +226,16 @@ export async function buildDTE_OreExtraction(oreId) {
   return buildCredential({
     contexts: [UNTP_DTE_CTX],
     types: ['DigitalTraceabilityEvent'],
-    id: credentialURL(`/api/credentials/dte/ore/${oreId}`),
+    id: credentialURL(`/api/credentials/dte/ore/${oreId}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(ore.extractedAt),
     evidence: buildEvidence(ore),
     renderPath: `/#/vc/ore/${oreId}`,
+    publicConfig,
   });
 }
 
-export async function buildDTE_BarRefinement(barId) {
+export async function buildDTE_BarRefinement(barId, publicConfig = {}) {
   const bar = await traceabilityContract.getBar(barId);
   if (!bar) throw new Error(`Bar not found: ${barId}`);
 
@@ -249,18 +245,18 @@ export async function buildDTE_BarRefinement(barId) {
   const credentialSubject = {
     '@context': UNTP_DTE_CTX,
     type: 'TransformationEvent',
-    id: entityURI('bar', hex(barId)),
+    id: entityURI('bar', hex(barId), publicConfig),
     eventTime: toISO(bar.refinedAt),
     action: 'ADD',
     disposition: 'active',
     bizStep: 'urn:epcglobal:cbv:bizstep:manufacturing',
     bizLocation: bar.refineryId,
     inputItemList: (bar.inputOreIds || []).map(oreId => ({
-      id: entityURI('ore', hex(oreId)),
+      id: entityURI('ore', hex(oreId), publicConfig),
       name: `Input ore ${oreId.slice(0, 8)}…`,
     })),
     outputItemList: [{
-      id: entityURI('bar', hex(barId)),
+      id: entityURI('bar', hex(barId), publicConfig),
       name: `${metalName} Bar — ${bar.barSerialNumber}`,
       metalCode,
       weight: { value: bar.outputWeightGrams, unit: 'GRM' },
@@ -273,18 +269,19 @@ export async function buildDTE_BarRefinement(barId) {
   return buildCredential({
     contexts: [UNTP_DTE_CTX],
     types: ['DigitalTraceabilityEvent'],
-    id: credentialURL(`/api/credentials/dte/bar/${barId}`),
+    id: credentialURL(`/api/credentials/dte/bar/${barId}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(bar.refinedAt),
     evidence: buildEvidence(bar),
+    publicConfig,
   });
 }
 
-export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp }) {
+export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp }, publicConfig = {}) {
   const credentialSubject = {
     '@context': UNTP_DTE_CTX,
     type: 'TransactionEvent',
-    id: entityURI(recordType.toLowerCase(), hex(id)),
+    id: entityURI(recordType.toLowerCase(), hex(id), publicConfig),
     eventTime: toISO(timestamp || Date.now()),
     action: 'OBSERVE',
     disposition: 'in_transit',
@@ -292,7 +289,7 @@ export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, to
     sourceParty: { id: fromAddress },
     destinationParty: { id: toAddress },
     epcList: [{
-      id: entityURI(recordType.toLowerCase(), hex(id)),
+      id: entityURI(recordType.toLowerCase(), hex(id), publicConfig),
       name: `${recordType} ${id.slice(0, 10)}…`,
     }],
   };
@@ -300,13 +297,14 @@ export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, to
   return buildCredential({
     contexts: [UNTP_DTE_CTX],
     types: ['DigitalTraceabilityEvent'],
-    id: credentialURL(`/api/credentials/dte/${recordType.toLowerCase()}/${id}`),
+    id: credentialURL(`/api/credentials/dte/${recordType.toLowerCase()}/${id}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(timestamp),
+    publicConfig,
   });
 }
 
-export async function buildDPP_Product(productId) {
+export async function buildDPP_Product(productId, publicConfig = {}) {
   const product = await traceabilityContract.getProduct(productId);
   if (!product) throw new Error(`Product not found: ${productId}`);
 
@@ -317,7 +315,7 @@ export async function buildDPP_Product(productId) {
   const credentialSubject = {
     '@context': UNTP_DPP_CTX,
     type: 'DigitalProductPassport',
-    id: entityURI('product', hex(productId)),
+    id: entityURI('product', hex(productId), publicConfig),
     name: `${metalName} ${product.productType} — ${product.hallmark}`,
     description: `Certified ${metalName.toLowerCase()} ${product.productType} with fineness ${fineness}‰`,
     registeredId: {
@@ -341,7 +339,7 @@ export async function buildDPP_Product(productId) {
     },
     productionDate: toISO(product.certifiedAt),
     traceabilityInformation: [{
-      eventReference: entityURI('bar', hex(product.inputBarId)),
+      eventReference: entityURI('bar', hex(product.inputBarId), publicConfig),
       eventType: 'TransformationEvent',
       verified: true,
       verifiedRatio: 1.0,
@@ -364,14 +362,15 @@ export async function buildDPP_Product(productId) {
   return buildCredential({
     contexts: [UNTP_DPP_CTX],
     types: ['DigitalProductPassport'],
-    id: credentialURL(`/api/credentials/dpp/product/${productId}`),
+    id: credentialURL(`/api/credentials/dpp/product/${productId}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(product.certifiedAt),
     evidence: buildEvidence(product),
+    publicConfig,
   });
 }
 
-export async function buildDCC_Assay(productId) {
+export async function buildDCC_Assay(productId, publicConfig = {}) {
   const product = await traceabilityContract.getProduct(productId);
   if (!product) throw new Error(`Product not found: ${productId}`);
 
@@ -392,7 +391,7 @@ export async function buildDCC_Assay(productId) {
     },
     assessedFacility: product.currentCustodian ? { id: product.currentCustodian } : undefined,
     conformityAssessment: [{
-      id: entityURI('product', hex(productId)),
+      id: entityURI('product', hex(productId), publicConfig),
       name: `${metalName} ${product.productType} assay`,
       assessmentDate: toISO(product.certifiedAt),
       referenceStandard: {
@@ -430,14 +429,15 @@ export async function buildDCC_Assay(productId) {
   return buildCredential({
     contexts: [UNTP_DCC_CTX],
     types: ['DigitalConformityCredential'],
-    id: credentialURL(`/api/credentials/dcc/product/${productId}`),
+    id: credentialURL(`/api/credentials/dcc/product/${productId}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(product.certifiedAt),
     evidence: buildEvidence(product),
+    publicConfig,
   });
 }
 
-export function buildDFR_Facility(facility) {
+export function buildDFR_Facility(facility, publicConfig = {}) {
   if (!facility) throw new Error('Facility data required');
 
   const credentialSubject = {
@@ -475,15 +475,16 @@ export function buildDFR_Facility(facility) {
   return buildCredential({
     contexts: [UNTP_DFR_CTX],
     types: ['DigitalFacilityRecord'],
-    id: credentialURL(`/api/credentials/dfr/facility/${facility.facilityId}`),
+    id: credentialURL(`/api/credentials/dfr/facility/${facility.facilityId}`, publicConfig),
     credentialSubject,
     issuanceDate: facility.createdAt || new Date().toISOString(),
+    publicConfig,
   });
 }
 
-export function buildDIDDocument(did, { name } = {}) {
+export function buildDIDDocument(did, { name, baseUri: baseUriOverride } = {}) {
   const keyId = getUntpKeyId(did);
-  const serviceBase = baseUri();
+  const serviceBase = baseUri({ baseUri: baseUriOverride });
   return {
     '@context': [
       'https://www.w3.org/ns/did/v1',

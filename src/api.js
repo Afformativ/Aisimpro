@@ -15,6 +15,7 @@ import traceabilityContract from './services/traceability-contract.js';
 import { PartyType, FacilityType, DocumentType } from './models/index.js';
 import untpRoutes from './routes/untp.js';
 import { buildDIDDocument } from './services/untp-credentials.js';
+import { getActiveUntpBaseUri, getActiveUntpDid } from './services/untp-public-url.js';
 
 // Auth imports
 import authRoutes from './auth/routes.js';
@@ -23,6 +24,7 @@ import { bootstrap } from './auth/bootstrap.js';
 import { requireAuth, requireAnyRole, enforcePasswordChange } from './auth/guards.js';
 
 const app = express();
+app.set('trust proxy', true);
 
 // ============ SECURITY MIDDLEWARE ============
 
@@ -80,8 +82,11 @@ app.get('/api/health', (req, res) => {
 // No auth required — DID documents are public by spec.
 
 app.get('/.well-known/did.json', (req, res) => {
-  const did = process.env.UNTP_DID || 'did:web:localhost';
-  const doc = buildDIDDocument(did, { name: process.env.UNTP_ISSUER_NAME });
+  const did = getActiveUntpDid(req);
+  const doc = buildDIDDocument(did, {
+    name: process.env.UNTP_ISSUER_NAME,
+    baseUri: getActiveUntpBaseUri(req),
+  });
   res.set('Content-Type', 'application/did+ld+json');
   res.json(doc);
 });

@@ -38,17 +38,18 @@ import traceabilityContract from '../services/traceability-contract.js';
 import provenanceService from '../services/provenance.js';
 import { requireAuth, requireAnyRole } from '../auth/guards.js';
 import { setCredentialRevocation, getCredentialStatusEntry } from '../services/untp-status-list.js';
+import { getActiveUntpBaseUri, getActiveUntpDid } from '../services/untp-public-url.js';
 
 const router = Router();
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
-function base() {
-  return (process.env.UNTP_BASE_URI || 'http://localhost:3000').replace(/\/$/, '');
+function base(req) {
+  return getActiveUntpBaseUri(req);
 }
 
-function serverDID() {
-  return process.env.UNTP_DID || 'did:web:localhost';
+function serverDID(req) {
+  return getActiveUntpDid(req);
 }
 
 /** RFC 9264 linkset entry helper. */
@@ -81,13 +82,13 @@ router.get('/facility/:id', (req, res) => res.redirect(302, `/api/resolve/facili
 router.get('/resolve/ore/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const anchor = `${base()}/api/resolve/ore/${id}`;
+    const anchor = `${base(req)}/api/resolve/ore/${id}`;
 
     const linkset = [{
       anchor,
       // DTE — extraction event
       'https://vocabulary.uncefact.org/DigitalTraceabilityEvent': [
-        link(`${base()}/api/credentials/dte/ore/${id}`, 'dte'),
+        link(`${base(req)}/api/credentials/dte/ore/${id}`, 'dte'),
       ],
     }];
 
@@ -105,12 +106,12 @@ router.get('/resolve/ore/:id', async (req, res) => {
 router.get('/resolve/bar/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const anchor = `${base()}/api/resolve/bar/${id}`;
+    const anchor = `${base(req)}/api/resolve/bar/${id}`;
 
     const linkset = [{
       anchor,
       'https://vocabulary.uncefact.org/DigitalTraceabilityEvent': [
-        link(`${base()}/api/credentials/dte/bar/${id}`, 'dte'),
+        link(`${base(req)}/api/credentials/dte/bar/${id}`, 'dte'),
       ],
     }];
 
@@ -128,15 +129,15 @@ router.get('/resolve/bar/:id', async (req, res) => {
 router.get('/resolve/product/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const anchor = `${base()}/api/resolve/product/${id}`;
+    const anchor = `${base(req)}/api/resolve/product/${id}`;
 
     const linkset = [{
       anchor,
       'https://vocabulary.uncefact.org/DigitalProductPassport': [
-        link(`${base()}/api/credentials/dpp/product/${id}`, 'dpp'),
+        link(`${base(req)}/api/credentials/dpp/product/${id}`, 'dpp'),
       ],
       'https://vocabulary.uncefact.org/DigitalConformityCredential': [
-        link(`${base()}/api/credentials/dcc/product/${id}`, 'dcc'),
+        link(`${base(req)}/api/credentials/dcc/product/${id}`, 'dcc'),
       ],
     }];
 
@@ -154,12 +155,12 @@ router.get('/resolve/product/:id', async (req, res) => {
 router.get('/resolve/facility/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const anchor = `${base()}/api/resolve/facility/${id}`;
+    const anchor = `${base(req)}/api/resolve/facility/${id}`;
 
     const linkset = [{
       anchor,
       'https://vocabulary.uncefact.org/DigitalFacilityRecord': [
-        link(`${base()}/api/credentials/dfr/facility/${id}`, 'dfr'),
+        link(`${base(req)}/api/credentials/dfr/facility/${id}`, 'dfr'),
       ],
     }];
 
@@ -179,7 +180,10 @@ const VC_CONTENT_TYPE = 'application/vc+ld+json';
 /** GET /api/credentials/dte/ore/:id */
 router.get('/credentials/dte/ore/:id', async (req, res) => {
   try {
-    const vc = await buildDTE_OreExtraction(req.params.id);
+    const vc = await buildDTE_OreExtraction(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -191,7 +195,10 @@ router.get('/credentials/dte/ore/:id', async (req, res) => {
 /** GET /api/credentials/dte/bar/:id */
 router.get('/credentials/dte/bar/:id', async (req, res) => {
   try {
-    const vc = await buildDTE_BarRefinement(req.params.id);
+    const vc = await buildDTE_BarRefinement(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -203,7 +210,10 @@ router.get('/credentials/dte/bar/:id', async (req, res) => {
 /** GET /api/credentials/dpp/product/:id */
 router.get('/credentials/dpp/product/:id', async (req, res) => {
   try {
-    const vc = await buildDPP_Product(req.params.id);
+    const vc = await buildDPP_Product(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -215,7 +225,10 @@ router.get('/credentials/dpp/product/:id', async (req, res) => {
 /** GET /api/credentials/dcc/product/:id */
 router.get('/credentials/dcc/product/:id', async (req, res) => {
   try {
-    const vc = await buildDCC_Assay(req.params.id);
+    const vc = await buildDCC_Assay(req.params.id, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -236,7 +249,10 @@ router.get('/credentials/dfr/facility/:id', async (req, res) => {
       if (party) facility.ownerPartyName = party.legalName;
     }
 
-    const vc = buildDFR_Facility(facility);
+    const vc = buildDFR_Facility(facility, {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -248,7 +264,10 @@ router.get('/credentials/dfr/facility/:id', async (req, res) => {
 /** GET /api/credentials/status/bitstring-status-list/:statusPurpose */
 router.get('/credentials/status/bitstring-status-list/:statusPurpose', async (req, res) => {
   try {
-    const vc = buildStatusListCredential(req.params.statusPurpose || 'revocation');
+    const vc = buildStatusListCredential(req.params.statusPurpose || 'revocation', {
+      baseUri: getActiveUntpBaseUri(req),
+      did: getActiveUntpDid(req),
+    });
     res.set('Content-Type', VC_CONTENT_TYPE);
     res.json(vc);
   } catch (err) {
@@ -266,8 +285,11 @@ router.get('/parties/:partyId/did.json', async (req, res) => {
     const party = await provenanceService.getParty(req.params.partyId);
     if (!party) return res.status(404).json({ error: 'Party not found' });
 
-    const did = `${serverDID()}:parties:${req.params.partyId}`;
-    const doc = buildDIDDocument(did, { name: party.legalName });
+    const did = `${serverDID(req)}:parties:${req.params.partyId}`;
+    const doc = buildDIDDocument(did, {
+      name: party.legalName,
+      baseUri: getActiveUntpBaseUri(req),
+    });
 
     res.set('Content-Type', 'application/did+ld+json');
     res.json(doc);
@@ -340,7 +362,9 @@ router.post('/untp/credential-status', requireAuth, requireAnyRole('ADMIN', 'SUP
   try {
     const { credentialId, revoked = true } = req.body;
     if (!credentialId) return res.status(400).json({ error: 'credentialId is required' });
-    const result = setCredentialRevocation(credentialId, Boolean(revoked));
+    const result = setCredentialRevocation(credentialId, Boolean(revoked), 'revocation', {
+      baseUri: getActiveUntpBaseUri(req),
+    });
     res.status(200).json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -356,7 +380,9 @@ router.get('/untp/credential-status', requireAuth, requireAnyRole('ADMIN', 'SUPE
   try {
     const { credentialId } = req.query;
     if (!credentialId) return res.status(400).json({ error: 'credentialId is required' });
-    const status = getCredentialStatusEntry(String(credentialId));
+    const status = getCredentialStatusEntry(String(credentialId), 'revocation', {
+      baseUri: getActiveUntpBaseUri(req),
+    });
     if (!status) return res.status(404).json({ error: 'Credential status not found' });
     res.json(status);
   } catch (err) {

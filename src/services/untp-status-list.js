@@ -56,12 +56,12 @@ function saveState() {
   fs.writeFileSync(STORE_PATH, JSON.stringify(cachedState, null, 2));
 }
 
-function base() {
-  return (process.env.UNTP_BASE_URI || 'http://localhost:3000').replace(/\/$/, '');
+function base(options = {}) {
+  return (options.baseUri || process.env.UNTP_BASE_URI || 'http://localhost:3000').replace(/\/$/, '');
 }
 
-function listUrl(statusPurpose = 'revocation') {
-  return `${base()}/api/credentials/status/bitstring-status-list/${statusPurpose}`;
+function listUrl(statusPurpose = 'revocation', options = {}) {
+  return `${base(options)}/api/credentials/status/bitstring-status-list/${statusPurpose}`;
 }
 
 function usedIndexes(statusPurpose) {
@@ -80,16 +80,16 @@ function randomFreeIndex(bits, taken) {
   }
 }
 
-export function ensureCredentialStatus(credentialId, statusPurpose = 'revocation') {
+export function ensureCredentialStatus(credentialId, statusPurpose = 'revocation', options = {}) {
   const state = loadState();
   const list = state.lists[statusPurpose];
   if (list.credentials[credentialId]) {
     return {
       ...list.credentials[credentialId],
-      id: `${listUrl(statusPurpose)}#${list.credentials[credentialId].statusListIndex}`,
+      id: `${listUrl(statusPurpose, options)}#${list.credentials[credentialId].statusListIndex}`,
       type: 'BitstringStatusListEntry',
       statusPurpose,
-      statusListCredential: listUrl(statusPurpose),
+      statusListCredential: listUrl(statusPurpose, options),
     };
   }
 
@@ -104,16 +104,16 @@ export function ensureCredentialStatus(credentialId, statusPurpose = 'revocation
   saveState();
 
   return {
-    id: `${listUrl(statusPurpose)}#${statusListIndex}`,
+    id: `${listUrl(statusPurpose, options)}#${statusListIndex}`,
     type: 'BitstringStatusListEntry',
     statusPurpose,
     statusListIndex,
-    statusListCredential: listUrl(statusPurpose),
+    statusListCredential: listUrl(statusPurpose, options),
   };
 }
 
-export function setCredentialRevocation(credentialId, revoked = true, statusPurpose = 'revocation') {
-  const entry = ensureCredentialStatus(credentialId, statusPurpose);
+export function setCredentialRevocation(credentialId, revoked = true, statusPurpose = 'revocation', options = {}) {
+  const entry = ensureCredentialStatus(credentialId, statusPurpose, options);
   const list = loadState().lists[statusPurpose];
   list.credentials[credentialId].revoked = revoked;
   list.credentials[credentialId].updatedAt = new Date().toISOString();
@@ -125,16 +125,16 @@ export function setCredentialRevocation(credentialId, revoked = true, statusPurp
   };
 }
 
-export function getCredentialStatusEntry(credentialId, statusPurpose = 'revocation') {
+export function getCredentialStatusEntry(credentialId, statusPurpose = 'revocation', options = {}) {
   const list = loadState().lists[statusPurpose];
   const entry = list.credentials[credentialId];
   if (!entry) return null;
   return {
-    id: `${listUrl(statusPurpose)}#${entry.statusListIndex}`,
+    id: `${listUrl(statusPurpose, options)}#${entry.statusListIndex}`,
     type: 'BitstringStatusListEntry',
     statusPurpose,
     statusListIndex: entry.statusListIndex,
-    statusListCredential: listUrl(statusPurpose),
+    statusListCredential: listUrl(statusPurpose, options),
     revoked: entry.revoked,
   };
 }
@@ -158,13 +158,13 @@ export function getEncodedStatusList(statusPurpose = 'revocation') {
   return `u${compressed.toString('base64url')}`;
 }
 
-export function getStatusListCredentialMetadata(statusPurpose = 'revocation') {
+export function getStatusListCredentialMetadata(statusPurpose = 'revocation', options = {}) {
   const list = loadState().lists[statusPurpose];
   return {
-    id: listUrl(statusPurpose),
+    id: listUrl(statusPurpose, options),
     type: ['VerifiableCredential', 'BitstringStatusListCredential'],
     credentialSubject: {
-      id: `${listUrl(statusPurpose)}#list`,
+      id: `${listUrl(statusPurpose, options)}#list`,
       type: 'BitstringStatusList',
       statusPurpose,
       encodedList: getEncodedStatusList(statusPurpose),
