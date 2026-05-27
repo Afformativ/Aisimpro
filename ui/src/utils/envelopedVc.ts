@@ -1,7 +1,9 @@
 function decodeSegment(segment: string) {
   const padded = segment.replace(/-/g, '+').replace(/_/g, '/')
     .padEnd(Math.ceil(segment.length / 4) * 4, '=')
-  return JSON.parse(window.atob(padded))
+  const binary = window.atob(padded)
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  return JSON.parse(new TextDecoder().decode(bytes))
 }
 
 export function decodeCredentialDocument(document: Record<string, any> | null) {
