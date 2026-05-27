@@ -16,6 +16,7 @@ import {
   Pickaxe,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { HIDDEN_NAV_PATHS_IN_PROD } from '../config/navigation';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -28,6 +29,10 @@ const navItems = [
   { path: '/audit', label: 'Audit Log', icon: ClipboardList },
   { path: '/network', label: 'Network', icon: Network },
 ];
+
+const visibleNavItems = import.meta.env.PROD
+  ? navItems.filter((item) => !HIDDEN_NAV_PATHS_IN_PROD.has(item.path))
+  : navItems;
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -62,7 +67,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="logo-subtitle">Chain-of-Custody Tracker</div>
         </div>
         <nav className="nav">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (

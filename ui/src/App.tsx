@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -19,6 +19,7 @@ import ChangePassword from './pages/ChangePassword';
 import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
 import OreCredential from './pages/OreCredential';
+import { DEFAULT_AUTHENTICATED_ROUTE } from './config/navigation';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -49,7 +50,15 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Routes>
-                      <Route path="/" element={<Dashboard />} />
+                      <Route
+                        path="/"
+                        element={
+                          import.meta.env.PROD
+                            ? <Navigate to={DEFAULT_AUTHENTICATED_ROUTE} replace />
+                            : <Dashboard />
+                        }
+                      />
+                      <Route path="/dashboard" element={<Dashboard />} />
                       <Route path="/parties" element={<Parties />} />
                       <Route path="/facilities" element={<Facilities />} />
                       <Route path="/batches" element={<Batches />} />

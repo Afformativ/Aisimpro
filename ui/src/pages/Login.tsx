@@ -6,6 +6,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn } from 'lucide-react';
+import { DEFAULT_AUTHENTICATED_ROUTE } from '../config/navigation';
 
 export default function Login() {
   const { login, isAuthenticated } = useAuth();
@@ -17,7 +18,7 @@ export default function Login() {
 
   // Redirect if already logged in
   if (isAuthenticated) {
-    navigate('/', { replace: true });
+    navigate(DEFAULT_AUTHENTICATED_ROUTE, { replace: true });
     return null;
   }
 
@@ -27,7 +28,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/', { replace: true });
+      navigate(DEFAULT_AUTHENTICATED_ROUTE, { replace: true });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
