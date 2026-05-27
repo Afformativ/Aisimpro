@@ -515,7 +515,7 @@ app.get('/api/traceability/gas', async (req, res) => {
  * Register raw ore extracted at the mine.
  * Requires: MINER or ADMIN role
  */
-app.post('/api/traceability/ore', requireAnyRole('MINER', 'ADMIN'), async (req, res) => {
+app.post('/api/traceability/ore', requireAuth, requireAnyRole('MINER', 'ADMIN'), async (req, res) => {
   try {
     const result = await traceabilityContract.registerOre(req.body);
     res.status(201).json(result);
@@ -529,7 +529,7 @@ app.post('/api/traceability/ore', requireAnyRole('MINER', 'ADMIN'), async (req, 
  * Smelt one or more ores into a refined bar.
  * Requires: REFINER or ADMIN role
  */
-app.post('/api/traceability/refine', requireAnyRole('REFINER', 'ADMIN'), async (req, res) => {
+app.post('/api/traceability/refine', requireAuth, requireAnyRole('REFINER', 'ADMIN'), async (req, res) => {
   try {
     const result = await traceabilityContract.refine(req.body);
     res.status(201).json(result);
@@ -543,7 +543,7 @@ app.post('/api/traceability/refine', requireAnyRole('REFINER', 'ADMIN'), async (
  * Certify a refined bar into a market-ready product.
  * Requires: ASSAYER or ADMIN role
  */
-app.post('/api/traceability/certify', requireAnyRole('ASSAYER', 'ADMIN'), async (req, res) => {
+app.post('/api/traceability/certify', requireAuth, requireAnyRole('ASSAYER', 'ADMIN'), async (req, res) => {
   try {
     const result = await traceabilityContract.certify(req.body);
     res.status(201).json(result);

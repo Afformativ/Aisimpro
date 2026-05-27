@@ -72,7 +72,7 @@ services:
       - key: TRACEABILITY_EXPLORER
         value: "https://cardona-zkevm.polygonscan.com"
       - key: TRACEABILITY_CHUNK_SIZE
-        value: "2000"
+        value: "30"
       - key: TRACEABILITY_DEPLOY_BLOCK
         sync: false
       - key: UNTP_BASE_URI

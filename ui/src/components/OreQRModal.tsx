@@ -14,10 +14,11 @@ export default function OreQRModal({ oreId, onClose }: OreQRModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // Use the browser's current hostname so QR codes work when opened from
-  // a phone on the same network (avoids encoding "localhost" which only
-  // resolves on the dev machine itself).
-  const serverBase = `${window.location.protocol}//${window.location.hostname}:3000`;
+  // Derive the server base from VITE_API_URL (set per-environment) so the QR
+  // encodes the correct public URL on Render/GitHub Pages, and the LAN IP
+  // when running locally via --host.
+  const apiBase = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000/api`;
+  const serverBase = apiBase.replace(/\/api\/?$/, '');
   const credentialUrl = `${serverBase}/api/credentials/dte/ore/${oreId}`;
 
   useEffect(() => {
