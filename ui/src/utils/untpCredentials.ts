@@ -75,6 +75,11 @@ function asText(value: unknown): string | null {
   return null;
 }
 
+function maybeHref(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return /^https?:\/\//i.test(value) ? value : undefined;
+}
+
 function formatDateTime(value: unknown): string | null {
   const raw = asText(value);
   if (!raw) return null;
@@ -117,7 +122,7 @@ function compactStats(stats: Array<UntpDisplayStat | null>): UntpDisplayStat[] {
 function field(label: string, value: unknown, options: { mono?: boolean; href?: string } = {}) {
   const text = asText(value);
   if (!text) return null;
-  return { label, value: text, ...options };
+  return { label, value: text, href: options.href || maybeHref(text), mono: options.mono };
 }
 
 function stat(label: string, value: unknown) {

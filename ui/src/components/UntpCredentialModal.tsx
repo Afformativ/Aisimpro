@@ -89,7 +89,7 @@ export default function UntpCredentialModal({ target, onClose }: UntpCredentialM
         </div>
 
         <div className="qr-modal-body">
-          <div className="qr-modal-left">
+          <div className="qr-modal-left qr-modal-left-full">
             <canvas ref={canvasRef} />
             <p className="qr-caption">{description?.qrCaption || 'Scan to open this UNTP credential'}</p>
             <div className="qr-actions">
@@ -109,86 +109,15 @@ export default function UntpCredentialModal({ target, onClose }: UntpCredentialM
                 <ExternalLink size={14} /> Open VC
               </a>
             </div>
-          </div>
-
-          <div className="qr-modal-right">
             {loading && <div className="qr-loading">Loading credential…</div>}
             {error && <div className="error-message">Could not load credential: {error}</div>}
-            {description && !loading && (
-              <>
-                <div className="qr-section">
-                  <div className="qr-section-title">Credential</div>
-                  <div className="qr-field"><span className="detail-label">Title</span>{description.title}</div>
-                  <div className="qr-field"><span className="detail-label">Summary</span>{description.subtitle}</div>
+            {!loading && !error && description && (
+              <div className="qr-compact-note">
+                <div className="qr-compact-title">{description.title}</div>
+                <div className="qr-compact-text">
+                  Use the QR code to scan on another device, or open the full UNTP credential in a new window.
                 </div>
-
-                {description.metaFields.length > 0 && (
-                  <div className="qr-section">
-                    <div className="qr-section-title">Metadata</div>
-                    {description.metaFields.map((item) => (
-                      <div key={item.label} className="qr-field">
-                        <span className="detail-label">{item.label}</span>
-                        {item.href ? (
-                          <a
-                            href={item.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={item.mono ? 'addr-truncate' : undefined}
-                          >
-                            {item.value}
-                          </a>
-                        ) : item.mono ? (
-                          <code className="addr-truncate">{item.value}</code>
-                        ) : (
-                          <span>{item.value}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {description.stats.length > 0 && (
-                  <div className="qr-section">
-                    <div className="qr-section-title">Snapshot</div>
-                    {description.stats.map((item) => (
-                      <div key={item.label} className="qr-field">
-                        <span className="detail-label">{item.label}</span>
-                        <span>{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {description.sections.map((section) => (
-                  <div key={section.title} className="qr-section">
-                    <div className="qr-section-title">{section.title}</div>
-                    {section.fields.map((item) => (
-                      <div key={`${section.title}-${item.label}`} className="qr-field">
-                        <span className="detail-label">{item.label}</span>
-                        {item.href ? (
-                          <a
-                            href={item.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={item.mono ? 'addr-truncate' : undefined}
-                          >
-                            {item.value}
-                          </a>
-                        ) : item.mono ? (
-                          <code className="addr-truncate">{item.value}</code>
-                        ) : (
-                          <span>{item.value}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ))}
-
-                <div className="qr-section">
-                  <div className="qr-section-title">Viewer URL</div>
-                  <code className="qr-url">{viewerUrl}</code>
-                </div>
-              </>
+              </div>
             )}
           </div>
         </div>
