@@ -100,6 +100,7 @@ const CONTRACT_ABI = [
 
   // Write
   'function registerOre(uint8 metal, string mineId, string originCountry, string mineralType, uint256 extractedAt, uint256 weightGrams, string estimatedGrade) returns (bytes32)',
+  'function registerOrePrivate(uint8 metal, string mineId, string mineralType, uint256 extractedAt, uint256 weightGrams, uint256 privacyCommitment) returns (bytes32)',
   'function refine(bytes32[] oreIds, uint8 metal, string refineryId, uint256 refinedAt, uint256 outputWeightGrams, uint256 finenessPPT, string barSerialNumber) returns (bytes32)',
   'function certify(bytes32 inputBarId, uint8 metal, string assayerId, uint256 certifiedAt, uint256 weightGrams, uint256 finenessPPT, string hallmark, string sku, string productType) returns (bytes32)',
   'function transferCustody(uint8 recordType, bytes32 id, address to)',
@@ -108,6 +109,7 @@ const CONTRACT_ABI = [
   'function getRawOre(bytes32 id) view returns (tuple(bytes32 id, uint8 metal, string mineId, string originCountry, string mineralType, uint256 extractedAt, uint256 weightGrams, string estimatedGrade, address currentCustodian, bool exists, bytes32 documentRoot, string evidenceManifestCID))',
   'function getRefinedBar(bytes32 id) view returns (tuple(bytes32 id, bytes32[] inputOreIds, uint8 metal, string refineryId, uint256 refinedAt, uint256 outputWeightGrams, uint256 finenessPPT, string barSerialNumber, address currentCustodian, bool exists, bytes32 documentRoot, string evidenceManifestCID))',
   'function getCertifiedProduct(bytes32 id) view returns (tuple(bytes32 id, bytes32 inputBarId, uint8 metal, string assayerId, uint256 certifiedAt, uint256 weightGrams, uint256 finenessPPT, string hallmark, string sku, string productType, address currentCustodian, bool exists, bytes32 documentRoot, string evidenceManifestCID, string conformityCredentialURI))',
+  'function getOrePrivacyCommitment(bytes32 oreId) view returns (uint256)',
 
   // UNTP — identity & discovery
   'function baseURI() view returns (string)',
@@ -115,6 +117,10 @@ const CONTRACT_ABI = [
   'function setBaseURI(string uri)',
   'function registerPartyDID(string did)',
   'function setConformityCredential(bytes32 productId, string uri)',
+  'function setOreDisclosureVerifier(address verifier)',
+  'function oreDisclosureVerifier() view returns (address)',
+  'function verifyOreSelectiveDisclosure(bytes32 oreId, uint256[2] a, uint256[2][2] b, uint256[2] c, uint256[5] input) view returns (bool)',
+  'function attestOreSelectiveDisclosure(bytes32 oreId, uint256[2] a, uint256[2][2] b, uint256[2] c, uint256[5] input) returns (bool)',
 
   // Document root setters
   'function setOreDocumentRoot(bytes32 oreId, bytes32 root, string manifestCID)',
@@ -136,6 +142,8 @@ const CONTRACT_ABI = [
   'event BarRefined(bytes32 indexed barId, bytes32[] oreIds, uint8 metal, address indexed custodian, string refineryId, uint256 refinedAt, uint256 outputWeightGrams, uint256 finenessPPT, string barSerialNumber)',
   'event ProductCertified(bytes32 indexed productId, bytes32 indexed barId, uint8 metal, address indexed custodian, string assayerId, uint256 certifiedAt, uint256 weightGrams, uint256 finenessPPT, string hallmark, string sku, string productType)',
   'event CustodyTransferred(uint8 recordType, bytes32 indexed id, address indexed from, address indexed to)',
+  'event OrePrivacyCommitmentSet(bytes32 indexed oreId, uint256 commitment)',
+  'event OreSelectiveDisclosureVerified(bytes32 indexed oreId, uint256 minGrade, uint256 approvedCountryA, uint256 approvedCountryB, uint256 approvedCountryC, address indexed verifier)',
 
   // Document root events
   'event OreDocumentRootSet(bytes32 indexed oreId, bytes32 root, string manifestCID)',
@@ -146,6 +154,7 @@ const CONTRACT_ABI = [
   'event PartyDIDRegistered(address indexed party, string did)',
   'event ConformityCredentialSet(bytes32 indexed productId, string uri)',
   'event BaseURIUpdated(string uri)',
+  'event OreDisclosureVerifierUpdated(address indexed verifier)',
 ];
 
 // Metal enum maps
@@ -788,6 +797,63 @@ class TraceabilityContractService {
     return this._formatOre(ore);
   }
 
+  async registerOrePrivate({ metal, mineId, mineralType, weightGrams, privacyCommitment }) {
+    const metalEnum = typeof metal === 'string' ? METAL[metal.toUpperCase()] : metal;
+    const extractedAt = Math.floor(Date.now() / 1000);
+
+    if (this.isLive) {
+      const callArgs = [metalEnum, mineId, mineralType, extractedAt, weightGrams, privacyCommitment];
+      const { overrides } = await this._buildSafeTxOverrides('registerOrePrivate', callArgs);
+      const tx = await this.contract.registerOrePrivate(...callArgs, overrides);
+      const receipt = await tx.wait();
+      const gasInfo = this._receiptGasInfo(receipt);
+      const oreEvent = receipt.logs.find((log) => log.fragment?.name === 'OreExtracted');
+      const commitmentEvent = receipt.logs.find((log) => log.fragment?.name === 'OrePrivacyCommitmentSet');
+      const id = oreEvent?.args?.[0] || commitmentEvent?.args?.[0] || receipt.logs[0]?.topics?.[1];
+      const ore = {
+        id,
+        metal: metalEnum,
+        mineId,
+        originCountry: 'PRIVATE',
+        mineralType,
+        extractedAt,
+        weightGrams,
+        estimatedGrade: 'PRIVATE',
+        currentCustodian: this.wallet.address,
+        txHash: receipt.hash,
+        blockNumber: receipt.blockNumber,
+        privacyCommitment: String(privacyCommitment),
+      };
+      simStore.ores[id] = { ...ore, exists: true };
+      simStore.events.push({ type: 'OreExtracted', id, timestamp: extractedAt, data: ore, txHash: receipt.hash });
+      this._persistOre(ore, receipt.blockNumber).catch(() => {});
+      this._updateCursor(receipt.blockNumber).catch(() => {});
+      return { ...this._formatOre(ore), privacyCommitment: String(privacyCommitment), gasInfo };
+    }
+
+    const id = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+      ['uint8', 'string', 'string', 'string', 'uint256', 'uint256', 'string', 'uint256', 'address'],
+      [metalEnum, mineId, 'PRIVATE', mineralType, extractedAt, weightGrams, 'PRIVATE', privacyCommitment, '0x0000000000000000000000000000000000000001'],
+    ));
+    const ore = {
+      id,
+      metal: metalEnum,
+      mineId,
+      originCountry: 'PRIVATE',
+      mineralType,
+      extractedAt,
+      weightGrams: Number(weightGrams),
+      estimatedGrade: 'PRIVATE',
+      currentCustodian: '0x0000000000000000000000000000000000000001',
+      exists: true,
+      txHash: `sim-${id.slice(0, 10)}`,
+      privacyCommitment: String(privacyCommitment),
+    };
+    simStore.ores[id] = ore;
+    simStore.events.push({ type: 'OreExtracted', id, timestamp: extractedAt, data: ore });
+    return { ...this._formatOre(ore), privacyCommitment: String(privacyCommitment) };
+  }
+
   // ── 2. Refine ───────────────────────────────────────────────────
   async refine({ oreIds, metal, refineryId, outputWeightGrams, finenessPPT, barSerialNumber }) {
     const metalEnum = typeof metal === 'string' ? METAL[metal.toUpperCase()] : metal;
@@ -883,12 +949,29 @@ class TraceabilityContractService {
     if (this.isLive) {
       try {
         const raw = await this.contract.getRawOre(id);
-        return this._formatOre(raw);
+        const ore = this._formatOre(raw);
+        try {
+          const privacyCommitment = await this.contract.getOrePrivacyCommitment(id);
+          if (privacyCommitment && privacyCommitment !== 0n) {
+            ore.privacyCommitment = String(privacyCommitment);
+          }
+        } catch { /* optional field */ }
+        return ore;
       } catch { /* fall through to cache */ }
     }
     const ore = simStore.ores[id];
     if (!ore) throw new Error('Ore not found');
     return this._formatOre(ore);
+  }
+
+  async getOrePrivacyCommitment(id) {
+    if (this.isLive) {
+      const commitment = await this.contract.getOrePrivacyCommitment(id);
+      return String(commitment);
+    }
+    const ore = simStore.ores[id];
+    if (!ore?.privacyCommitment) return null;
+    return String(ore.privacyCommitment);
   }
 
   async getBar(id) {
@@ -940,6 +1023,53 @@ class TraceabilityContractService {
       }));
   }
 
+  async setOreDisclosureVerifier(verifierAddress) {
+    if (!this.isLive) {
+      return { simulation: true, verifierAddress };
+    }
+    const callArgs = [verifierAddress];
+    const { overrides } = await this._buildSafeTxOverrides('setOreDisclosureVerifier', callArgs);
+    const tx = await this.contract.setOreDisclosureVerifier(...callArgs, overrides);
+    const receipt = await tx.wait();
+    return {
+      verifierAddress,
+      txHash: receipt.hash,
+      explorerUrl: this._txLink(receipt.hash),
+      gasInfo: this._receiptGasInfo(receipt),
+    };
+  }
+
+  async getOreDisclosureVerifier() {
+    if (!this.isLive) return null;
+    return this.contract.oreDisclosureVerifier();
+  }
+
+  async verifyOreSelectiveDisclosure(oreId, solidityProof) {
+    const { a, b, c, input } = solidityProof;
+    if (this.isLive) {
+      return this.contract.verifyOreSelectiveDisclosure(oreId, a, b, c, input);
+    }
+    return true;
+  }
+
+  async attestOreSelectiveDisclosure(oreId, solidityProof) {
+    const { a, b, c, input } = solidityProof;
+    if (!this.isLive) {
+      return { simulation: true, oreId, valid: true };
+    }
+    const callArgs = [oreId, a, b, c, input];
+    const { overrides } = await this._buildSafeTxOverrides('attestOreSelectiveDisclosure', callArgs);
+    const tx = await this.contract.attestOreSelectiveDisclosure(...callArgs, overrides);
+    const receipt = await tx.wait();
+    return {
+      oreId,
+      valid: true,
+      txHash: receipt.hash,
+      explorerUrl: this._txLink(receipt.hash),
+      gasInfo: this._receiptGasInfo(receipt),
+    };
+  }
+
   // ── Formatters ──────────────────────────────────────────────────
   _formatOre(o) {
     const ZERO_BYTES32 = '0x0000000000000000000000000000000000000000000000000000000000000000';
@@ -958,6 +1088,7 @@ class TraceabilityContractService {
       explorerUrl: this._txLink(o.txHash),
       documentRoot: o.documentRoot && o.documentRoot !== ZERO_BYTES32 ? o.documentRoot : null,
       evidenceManifestCID: o.evidenceManifestCID || null,
+      privacyCommitment: o.privacyCommitment ? String(o.privacyCommitment) : null,
     };
   }
 

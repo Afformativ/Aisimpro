@@ -69,12 +69,16 @@ export async function anchorBatch(batchId, attempt = 0) {
   store.saveAnchorBatch(batch);
 
   try {
-    // Build anchor payload.
-    // The anchoringService.anchorHash() handles both simulation and real tx.
-    const anchorResult = await anchoringService.anchorHash(
-      `merkle-root:${batch.batchId}`,
-      batch.merkleRoot
-    );
+    const anchorResult = await anchoringService.anchorMerkleRoot({
+      merkleRoot: batch.merkleRoot,
+      batchId: batch.batchId,
+      scopeType: batch.scopeType,
+      scopeId: batch.scopeId,
+      schemaVersion: batch.canonicalizationVersion || '1.0.0',
+      treeAlgo: batch.treeAlgo,
+      prevChainedRoot: batch.prevChainedRoot,
+      chainedRoot: batch.chainedRoot,
+    });
 
     if (!anchorResult.success) {
       throw new Error(anchorResult.error || 'Anchor transaction failed');

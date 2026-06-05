@@ -11,7 +11,9 @@ import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import provenanceService from './services/provenance.js';
 import anchoringService from './services/anchoring.js';
+import articleTraceabilityService from './services/article-traceability.js';
 import traceabilityContract from './services/traceability-contract.js';
+import zkOreProofService, { encodeCommitment } from './services/zk-ore-proof.js';
 import { PartyType, FacilityType, DocumentType } from './models/index.js';
 import untpRoutes from './routes/untp.js';
 import { buildDIDDocument } from './services/untp-credentials.js';
@@ -113,6 +115,235 @@ app.use('/api', untpRoutes);
 // ============ PROTECTED API ROUTES ============
 // All routes below require valid JWT (unless AUTH_ENABLED=false)
 app.use('/api', requireAuth, enforcePasswordChange);
+
+// ============ ZK SELECTIVE DISCLOSURE ============
+
+app.post('/api/zk/ore/register-private', async (req, res) => {
+  try {
+    const {
+      metal = 'GOLD',
+      mineId,
+      mineralType,
+      weightGrams,
+      countryCode,
+      gradeValue,
+      salt,
+    } = req.body;
+
+    if (!mineId || !mineralType || !weightGrams || !countryCode || gradeValue == null || salt == null) {
+      return res.status(400).json({ error: 'mineId, mineralType, weightGrams, countryCode, gradeValue, and salt are required' });
+    }
+
+    const commitmentData = await zkOreProofService.computeCommitment({ countryCode, gradeValue, salt });
+    const ore = await traceabilityContract.registerOrePrivate({
+      metal,
+      mineId,
+      mineralType,
+      weightGrams,
+      privacyCommitment: commitmentData.commitment,
+    });
+
+    res.status(201).json({
+      ore,
+      commitment: commitmentData.commitment,
+      commitmentHex: commitmentData.commitmentHex,
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/zk/ore/:oreId/commitment', async (req, res) => {
+  try {
+    const commitment = await traceabilityContract.getOrePrivacyCommitment(req.params.oreId);
+    if (!commitment) {
+      return res.status(404).json({ error: 'Ore commitment not found' });
+    }
+    res.json({
+      oreId: req.params.oreId,
+      commitment,
+      commitmentHex: encodeCommitment(commitment),
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/zk/ore/:oreId/prove', async (req, res) => {
+  try {
+    const {
+      countryCode,
+      gradeValue,
+      salt,
+      minGrade,
+      allowedCountries,
+    } = req.body;
+
+    if (!countryCode || gradeValue == null || salt == null || minGrade == null || !allowedCountries) {
+      return res.status(400).json({ error: 'countryCode, gradeValue, salt, minGrade, and allowedCountries are required' });
+    }
+
+    const commitment = await traceabilityContract.getOrePrivacyCommitment(req.params.oreId);
+    const result = await zkOreProofService.generateProof({
+      countryCode,
+      gradeValue,
+      salt,
+      minGrade,
+      allowedCountries,
+      expectedCommitment: commitment,
+    });
+
+    res.json({
+      oreId: req.params.oreId,
+      onChainCommitment: commitment,
+      onChainCommitmentHex: encodeCommitment(commitment),
+      ...result,
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/zk/ore/:oreId/verify', async (req, res) => {
+  try {
+    const { proof, publicSignals, attestOnChain = false } = req.body;
+    if (!proof || !publicSignals) {
+      return res.status(400).json({ error: 'proof and publicSignals are required' });
+    }
+
+    const localVerified = await zkOreProofService.verifyProof({ proof, publicSignals });
+    const solidityProof = {
+      a: [proof.pi_a[0], proof.pi_a[1]],
+      b: [
+        [proof.pi_b[0][1], proof.pi_b[0][0]],
+        [proof.pi_b[1][1], proof.pi_b[1][0]],
+      ],
+      c: [proof.pi_c[0], proof.pi_c[1]],
+      input: publicSignals,
+    };
+
+    const contractVerified = await traceabilityContract.verifyOreSelectiveDisclosure(req.params.oreId, solidityProof);
+    const result = {
+      oreId: req.params.oreId,
+      localVerified,
+      contractVerified,
+    };
+
+    if (attestOnChain) {
+      result.attestation = await traceabilityContract.attestOreSelectiveDisclosure(req.params.oreId, solidityProof);
+    }
+
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/zk/verifier', requireAnyRole('SUPERADMIN', 'ADMIN'), async (req, res) => {
+  try {
+    const { verifierAddress } = req.body;
+    if (!verifierAddress) {
+      return res.status(400).json({ error: 'verifierAddress is required' });
+    }
+
+    const result = await traceabilityContract.setOreDisclosureVerifier(verifierAddress);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// ============ ARTICLE MODE: PRIVATE LIFECYCLE + ROOT ANCHORING ============
+
+app.post('/api/article/ore', requireAnyRole('MINER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.registerOrePrivate(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/transfer', requireAnyRole('DEALER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.transferCustodyPrivate(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/refine', requireAnyRole('REFINER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.refinePrivate(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/certify', requireAnyRole('ASSAYER', 'ADMIN'), async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.certifyPrivate(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/article/records/:id', async (req, res) => {
+  try {
+    res.json(articleTraceabilityService.getRecord(req.params.id));
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+app.get('/api/article/records/:id/verification-bundle', async (req, res) => {
+  try {
+    res.json(articleTraceabilityService.getVerificationBundle(req.params.id));
+  } catch (error) {
+    res.status(404).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/records/:id/prove-origin-grade', async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.proveOriginGrade(req.params.id, req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/records/:id/prove-purity', async (req, res) => {
+  try {
+    const result = await articleTraceabilityService.provePurity(req.params.id, req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.post('/api/article/anchor/close', requireAnyRole('ADMIN', 'SUPERADMIN'), async (req, res) => {
+  try {
+    const { scopeId } = req.body;
+    if (!scopeId) {
+      return res.status(400).json({ error: 'scopeId is required' });
+    }
+    res.json(await articleTraceabilityService.closeAndAnchorScope(scopeId));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get('/api/article/metrics', async (req, res) => {
+  try {
+    res.json(articleTraceabilityService.getMetrics());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ============ PARTIES ============
 

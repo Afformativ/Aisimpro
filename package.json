@@ -11,6 +11,14 @@
     "test": "node src/test-flow.js",
     "test:mongodb": "node src/test-mongodb.js",
     "test:merkle": "node tests/merkle.test.js",
+    "benchmark:testnet": "node scripts/benchmark-testnet.mjs",
+    "preflight:article": "node scripts/preflight-article-benchmark.mjs",
+    "benchmark:article": "node scripts/benchmark-article-mode.mjs",
+    "privacy:article": "node scripts/score-article-privacy.mjs",
+    "summary:article": "node scripts/summarize-article-benchmark.mjs",
+    "zk:build": "node scripts/build-zk.mjs",
+    "zk:test": "npx hardhat run scripts/test-zk-flow.cjs",
+    "article:test": "npx hardhat run scripts/test-article-mode.cjs",
     "compile": "npx hardhat compile",
     "demo:jewel": "npx hardhat run scripts/demo.cjs --network localhost"
   },
@@ -18,6 +26,8 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^9.2.2",
     "chalk": "^5.3.0",
+    "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
     "cli-table3": "^0.6.3",
     "commander": "^11.1.0",
     "cookie-parser": "^1.4.7",
@@ -31,6 +41,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.0.0",
     "mongoose": "^8.0.3",
+    "snarkjs": "^0.7.6",
     "uuid": "^9.0.0"
   },
   "keywords": [

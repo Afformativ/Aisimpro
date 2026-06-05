@@ -37,12 +37,23 @@ const NETWORKS = {
     chainId: 80002,
     explorerUrl: 'https://amoy.polygonscan.com',
     name: 'Polygon Amoy Testnet'
+  },
+  localhost: {
+    rpcUrl: 'http://127.0.0.1:8545',
+    chainId: 31337,
+    explorerUrl: null,
+    name: 'Localhost Hardhat'
   }
 };
 
+const DEFAULT_NETWORK = process.env.BLOCKCHAIN_NETWORK || process.env.ANCHORING_NETWORK || 'amoy';
+const preset = NETWORKS[DEFAULT_NETWORK] || NETWORKS.amoy;
+
 // Default configuration for Polygon Amoy Testnet
 const DEFAULT_CONFIG = {
-  ...NETWORKS['amoy'],
+  ...preset,
+  rpcUrl: process.env.ANCHORING_RPC_URL || process.env.RPC_URL || preset.rpcUrl,
+  explorerUrl: process.env.ANCHORING_EXPLORER_URL || preset.explorerUrl,
   contractAddress: process.env.CONTRACT_ADDRESS || null
 };
 
@@ -90,6 +101,41 @@ class BlockchainAnchoringService {
       console.error('Blockchain connection failed:', error.message);
       return { success: false, error: error.message };
     }
+  }
+
+  /**
+   * Attach an already-connected signer/provider pair.
+   * Useful for Hardhat in-process tests where no external RPC is exposed.
+   */
+  async attachSigner(signer, contractAddress = null) {
+    if (!signer?.provider) {
+      throw new Error('Signer with provider is required');
+    }
+
+    this.provider = signer.provider;
+    this.wallet = signer;
+
+    const resolvedContractAddress = contractAddress || this.config.contractAddress || process.env.CONTRACT_ADDRESS;
+    if (resolvedContractAddress) {
+      this.contract = new ethers.Contract(
+        resolvedContractAddress,
+        EVENT_LOGGER_ABI,
+        signer
+      );
+      this.simulationMode = false;
+      console.log(` Contract: ${resolvedContractAddress}`);
+    } else {
+      this.contract = null;
+      this.simulationMode = true;
+      console.log(' No CONTRACT_ADDRESS set - running in simulation mode');
+    }
+
+    this.isConnected = true;
+    const address = typeof signer.getAddress === 'function'
+      ? await signer.getAddress()
+      : signer.address;
+
+    return { success: true, address: address || 'attached-signer' };
   }
 
   /**
