@@ -40,10 +40,23 @@ const NETWORKS = {
   }
 };
 
+function resolvePolygonRpcUrl(configuredUrl) {
+  if (!configuredUrl) return NETWORKS.amoy.rpcUrl;
+  try {
+    if (new URL(configuredUrl).hostname === 'rpc-amoy.polygon.technology') {
+      console.warn(`Configured Amoy RPC is retired; using ${NETWORKS.amoy.rpcUrl}`);
+      return NETWORKS.amoy.rpcUrl;
+    }
+  } catch {
+    // Preserve malformed custom values so connect() reports the configuration error.
+  }
+  return configuredUrl;
+}
+
 // Default configuration for Polygon Amoy Testnet
 const DEFAULT_CONFIG = {
   ...NETWORKS['amoy'],
-  rpcUrl: process.env.POLYGON_RPC || NETWORKS['amoy'].rpcUrl,
+  rpcUrl: resolvePolygonRpcUrl(process.env.POLYGON_RPC),
   contractAddress: process.env.CONTRACT_ADDRESS || null
 };
 
@@ -65,7 +78,9 @@ class BlockchainAnchoringService {
   async connect(privateKey = null) {
     try {
       this.connectionError = null;
-      this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
+      // dRPC's free Amoy endpoint rejects JSON-RPC batches larger than three.
+      // Disable ethers' automatic batching so normal concurrent calls remain compatible.
+      this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl, undefined, { batchMaxCount: 1 });
       
       if (privateKey) {
         this.wallet = new ethers.Wallet(privateKey, this.provider);

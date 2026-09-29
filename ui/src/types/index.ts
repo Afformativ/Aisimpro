@@ -208,6 +208,7 @@ export interface TraceabilityStatus {
   contractAddress: string | null;
   wallet: string | null;
   simulation: boolean;
+  connectionError: string | null;
   network: string | null;
   explorerUrl: string | null;
   oreCount: number;

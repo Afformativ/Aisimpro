@@ -237,6 +237,8 @@ export default function OnChainTraceability() {
           <span className={`status-badge ${status?.live ? 'live' : 'simulation'}`}>
             {status?.live ? (
               <><CheckCircle size={16} /> Live &mdash; {status.network || 'On-Chain'}</>
+            ) : status?.connectionError ? (
+              <><AlertTriangle size={16} /> Blockchain Unavailable</>
             ) : (
               <><Gem size={16} /> Simulation</>
             )}

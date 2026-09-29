@@ -24,7 +24,10 @@ import { bootstrap } from './auth/bootstrap.js';
 import { requireAuth, requireAnyRole, enforcePasswordChange } from './auth/guards.js';
 
 const app = express();
-app.set('trust proxy', true);
+// Local development connects directly; Render terminates HTTPS one proxy hop
+// in front of the app. Never use `true`, because clients could spoof the
+// left-most X-Forwarded-For address and bypass IP-based rate limiting.
+app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
 
 // ============ SECURITY MIDDLEWARE ============
 

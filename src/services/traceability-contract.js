@@ -177,6 +177,19 @@ const NETWORKS = {
   },
 };
 
+function resolveRpcUrl(configuredUrl) {
+  if (!configuredUrl) return NETWORKS.amoy.rpcUrl;
+  try {
+    if (new URL(configuredUrl).hostname === 'rpc-amoy.polygon.technology') {
+      console.warn(`Configured Amoy RPC is retired; using ${NETWORKS.amoy.rpcUrl}`);
+      return NETWORKS.amoy.rpcUrl;
+    }
+  } catch {
+    // Preserve malformed custom values so connect() reports the configuration error.
+  }
+  return configuredUrl;
+}
+
 // ────────────────────────────────────────────────────────────────────
 // In-memory store (simulation mode OR live-mode cache)
 // ────────────────────────────────────────────────────────────────────
@@ -218,11 +231,11 @@ class TraceabilityContractService {
     const privateKey = process.env.PRIVATE_KEY;
 
     // Pick RPC URL: env override → detect from ZKEVM_RPC_URL → Amoy default
-    const rpcUrl = process.env.TRACEABILITY_RPC_URL
+    const rpcUrl = resolveRpcUrl(process.env.TRACEABILITY_RPC_URL
       || process.env.ZKEVM_RPC_URL
       || process.env.AMOY_RPC_URL
       || process.env.RPC_URL
-      || NETWORKS.amoy.rpcUrl;
+      || NETWORKS.amoy.rpcUrl);
 
     // Pick explorer URL from env or detect from RPC
     this.explorerUrl = process.env.TRACEABILITY_EXPLORER || null;
@@ -236,7 +249,9 @@ class TraceabilityContractService {
     }
 
     try {
-      this.provider = new ethers.JsonRpcProvider(rpcUrl);
+      // dRPC's free Amoy endpoint rejects JSON-RPC batches larger than three.
+      // Disable ethers' automatic batching so transaction preflight stays compatible.
+      this.provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { batchMaxCount: 1 });
       this.wallet = new ethers.Wallet(privateKey, this.provider);
       this.contract = new ethers.Contract(contractAddr, CONTRACT_ABI, this.wallet);
 
