@@ -22,7 +22,7 @@ contract EventLogger {
 `;
 
 const AMOY_CONFIG = {
-  rpcUrl: 'https://rpc-amoy.polygon.technology',
+  rpcUrl: 'https://polygon-amoy.drpc.org',
   chainId: 80002,
   explorerUrl: 'https://amoy.polygonscan.com',
   name: 'Polygon Amoy Testnet'

@@ -122,7 +122,7 @@ function envelopJwt(jwt, contexts) {
 }
 
 function buildEvidence(record) {
-  if (!record?.txHash) return undefined;
+  if (!record?.txHash || !/^0x[0-9a-fA-F]{64}$/.test(record.txHash)) return undefined;
   return [{
     id: `urn:goldprov:tx:${record.txHash}`,
     type: 'BlockchainAnchor',
@@ -400,7 +400,7 @@ export async function buildDPP_Bar(barId, publicConfig = {}) {
   });
 }
 
-export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp, txHash, blockNumber }, publicConfig = {}) {
+export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, toAddress, timestamp, txHash, blockNumber, explorerUrl }, publicConfig = {}) {
   const credentialSubject = {
     '@context': UNTP_DTE_CTX,
     type: 'TransactionEvent',
@@ -423,7 +423,7 @@ export async function buildDTE_CustodyTransfer({ recordType, id, fromAddress, to
     id: credentialURL(`/api/credentials/dte/${recordType.toLowerCase()}/${id}/custody/${txHash || timestamp}`, publicConfig),
     credentialSubject,
     issuanceDate: toISO(timestamp),
-    evidence: txHash ? buildEvidence({ txHash, blockNumber }) : undefined,
+    evidence: buildEvidence({ txHash, blockNumber, explorerUrl }),
     renderPath: `/#/vc/dte/${recordType.toLowerCase()}/${id}/custody/${txHash || timestamp}`,
     publicConfig,
   });

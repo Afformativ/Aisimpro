@@ -68,11 +68,11 @@ services:
       - key: CONTRACT_ADDRESS
         value: "0xEAFdbD04C0Cecf8310ae68A26b479fE4d286db19"
       - key: POLYGON_RPC
-        value: "https://rpc-amoy.polygon.technology"
+        value: "https://polygon-amoy.drpc.org"
       - key: TRACEABILITY_RPC_URL
-        value: "https://rpc.cardona.zkevm-rpc.com"
+        value: "https://polygon-amoy.drpc.org"
       - key: TRACEABILITY_EXPLORER
-        value: "https://cardona-zkevm.polygonscan.com"
+        value: "https://amoy.polygonscan.com"
       - key: TRACEABILITY_CHUNK_SIZE
         value: "30"
       - key: TRACEABILITY_DEPLOY_BLOCK

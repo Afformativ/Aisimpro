@@ -529,7 +529,7 @@ export default function BatchDetail() {
                     <Hash size={12} />
                     <code>{event.payloadHash.slice(0, 16)}...</code>
                   </div>
-                  {event.txHash && (
+                  {event.txHash && /^0x[0-9a-fA-F]{64}$/.test(event.txHash) && (
                     <a
                       href={event.explorerUrl || `https://amoy.polygonscan.com/tx/${event.txHash}`}
                       target="_blank"

@@ -24,7 +24,7 @@ const NETWORKS = [
     key: 'amoy',
     name: 'Polygon Amoy Testnet',
     chainId: 80002,
-    rpcUrl: 'https://rpc-amoy.polygon.technology',
+    rpcUrl: 'https://polygon-amoy.drpc.org',
     explorer: 'https://amoy.polygonscan.com',
     type: 'testnet',
     active: true,

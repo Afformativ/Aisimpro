@@ -33,7 +33,7 @@ const NETWORKS = {
   },
   // Polygon Amoy testnet (legacy)
   'amoy': {
-    rpcUrl: 'https://rpc-amoy.polygon.technology',
+    rpcUrl: 'https://polygon-amoy.drpc.org',
     chainId: 80002,
     explorerUrl: 'https://amoy.polygonscan.com',
     name: 'Polygon Amoy Testnet'
@@ -43,6 +43,7 @@ const NETWORKS = {
 // Default configuration for Polygon Amoy Testnet
 const DEFAULT_CONFIG = {
   ...NETWORKS['amoy'],
+  rpcUrl: process.env.POLYGON_RPC || NETWORKS['amoy'].rpcUrl,
   contractAddress: process.env.CONTRACT_ADDRESS || null
 };
 
@@ -54,6 +55,7 @@ class BlockchainAnchoringService {
     this.contract = null;
     this.isConnected = false;
     this.simulationMode = true; // Start in simulation mode
+    this.connectionError = null;
     this.simulatedTransactions = [];
   }
 
@@ -62,6 +64,7 @@ class BlockchainAnchoringService {
    */
   async connect(privateKey = null) {
     try {
+      this.connectionError = null;
       this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
       
       if (privateKey) {
@@ -71,6 +74,14 @@ class BlockchainAnchoringService {
         const contractAddress = this.config.contractAddress || process.env.CONTRACT_ADDRESS;
         
         if (contractAddress) {
+          const network = await this.provider.getNetwork();
+          if (network.chainId !== BigInt(this.config.chainId)) {
+            throw new Error(`RPC chain ID ${network.chainId} does not match configured chain ID ${this.config.chainId}`);
+          }
+          const contractCode = await this.provider.getCode(contractAddress);
+          if (contractCode === '0x') {
+            throw new Error(`No anchoring contract deployed at ${contractAddress} on ${this.config.name}`);
+          }
           this.contract = new ethers.Contract(
             contractAddress,
             EVENT_LOGGER_ABI,
@@ -88,6 +99,9 @@ class BlockchainAnchoringService {
       return { success: true, address: this.wallet?.address || 'simulation-mode' };
     } catch (error) {
       console.error('Blockchain connection failed:', error.message);
+      this.connectionError = error.message;
+      this.simulationMode = true;
+      this.isConnected = false;
       return { success: false, error: error.message };
     }
   }
@@ -130,6 +144,10 @@ class BlockchainAnchoringService {
       blockNumber: null,
       explorerUrl: null
     };
+
+    if (this.connectionError) {
+      return { success: false, error: `Blockchain unavailable: ${this.connectionError}` };
+    }
 
     if (this.simulationMode) {
       // Simulation mode - generate fake tx hash
@@ -229,6 +247,10 @@ class BlockchainAnchoringService {
       blockNumber: null,
       explorerUrl: null,
     };
+
+    if (this.connectionError) {
+      return { success: false, error: `Blockchain unavailable: ${this.connectionError}` };
+    }
 
     if (this.simulationMode) {
       const fakeTxHash = '0x' + Array(64).fill(0).map(() =>
@@ -339,7 +361,8 @@ class BlockchainAnchoringService {
       chainId: this.config.chainId,
       rpcUrl: this.config.rpcUrl,
       explorerUrl: this.config.explorerUrl,
-      simulationMode: this.simulationMode
+      simulationMode: this.simulationMode,
+      connectionError: this.connectionError,
     };
   }
 
@@ -369,7 +392,7 @@ class BlockchainAnchoringService {
   }
 }
 
-// Export singleton instance (defaults to Polygon zkEVM Cardona Testnet)
+// Export singleton instance (defaults to Polygon Amoy Testnet)
 const anchoringService = new BlockchainAnchoringService();
 export default anchoringService;
 export { BlockchainAnchoringService, NETWORKS };

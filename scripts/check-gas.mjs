@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-const p = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+const p = new ethers.JsonRpcProvider('https://polygon-amoy.drpc.org');
 const WALLET = '0x3ef410c459e8525BfBdC557Ca36d2Bf264393649';
 const CONTRACT = '0x3920dFdD3cb6C254f2FA9783d0b6c60F19832198';
 

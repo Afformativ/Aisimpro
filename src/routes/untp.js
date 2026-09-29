@@ -279,6 +279,7 @@ router.get('/credentials/dte/:recordType/:id/custody/:eventId', async (req, res)
       timestamp: transfer.timestamp,
       txHash: transfer.txHash,
       blockNumber: transfer.blockNumber,
+      explorerUrl: transfer.explorerUrl,
     }, {
       baseUri: getActiveUntpBaseUri(req),
       did: getActiveUntpDid(req),

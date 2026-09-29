@@ -74,10 +74,12 @@ app.use('/api/auth/register', authLimiter);
 // ============ HEALTH CHECK ============
 
 app.get('/api/health', (req, res) => {
+  const traceabilityStatus = traceabilityContract.status();
   res.json({
-    status: 'ok',
+    status: traceabilityStatus.connectionError ? 'degraded' : 'ok',
     timestamp: new Date().toISOString(),
-    simulationMode: anchoringService.isSimulated(),
+    simulationMode: anchoringService.isSimulated() || traceabilityStatus.simulation,
+    blockchainError: traceabilityStatus.connectionError,
     merkleAnchoringEnabled: process.env.MERKLE_ANCHORING_ENABLED === 'true',
     authEnabled: process.env.AUTH_ENABLED !== 'false',
   });

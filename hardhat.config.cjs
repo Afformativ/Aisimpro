@@ -25,7 +25,7 @@ module.exports = {
       url: "http://127.0.0.1:8545",
     },
     amoy: {
-      url: process.env.AMOY_RPC_URL || "https://rpc-amoy.polygon.technology",
+      url: process.env.AMOY_RPC_URL || "https://polygon-amoy.drpc.org",
       chainId: 80002,
       accounts: [PRIVATE_KEY],
       gasPrice: 30_000_000_000,   // 30 gwei — keeps deploy cost under 0.1 POL

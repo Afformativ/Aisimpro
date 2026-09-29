@@ -12,7 +12,8 @@
     "test:mongodb": "node src/test-mongodb.js",
     "test:merkle": "node tests/merkle.test.js",
     "compile": "npx hardhat compile",
-    "demo:jewel": "npx hardhat run scripts/demo.cjs --network localhost"
+    "demo:jewel": "npx hardhat run scripts/demo.cjs --network localhost",
+    "benchmark:legacy": "node scripts/benchmark-legacy-live.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

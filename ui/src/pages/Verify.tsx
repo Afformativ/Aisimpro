@@ -175,7 +175,7 @@ export default function Verify() {
                           )}
                         </td>
                         <td>
-                          {anchor?.txHash ? (
+                          {anchor?.txHash && /^0x[0-9a-fA-F]{64}$/.test(anchor.txHash) ? (
                             <a 
                               href={`https://amoy.polygonscan.com/tx/${anchor.txHash}`}
                               target="_blank"

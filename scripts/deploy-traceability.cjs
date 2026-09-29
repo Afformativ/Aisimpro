@@ -98,7 +98,7 @@ async function main() {
     console.log(`  TRACEABILITY_RPC_URL=https://rpc.cardona.zkevm-rpc.com`);
     console.log(`  TRACEABILITY_EXPLORER=https://cardona-zkevm.polygonscan.com`);
   } else if (network === "amoy") {
-    console.log(`  TRACEABILITY_RPC_URL=https://rpc-amoy.polygon.technology`);
+    console.log(`  TRACEABILITY_RPC_URL=https://polygon-amoy.drpc.org`);
     console.log(`  TRACEABILITY_EXPLORER=https://amoy.polygonscan.com`);
   }
   console.log("═══════════════════════════════════════════════════════");

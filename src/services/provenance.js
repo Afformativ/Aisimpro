@@ -180,7 +180,13 @@ class ProvenanceService {
     } else {
       // ---- Legacy path: per-item on-chain anchoring ----
       batchAnchor = await anchoringService.anchorBatch(batch.batchId, batchHash);
+      if (!batchAnchor.success) {
+        throw new Error(batchAnchor.error || 'Batch blockchain anchor failed');
+      }
       eventAnchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+      if (!eventAnchor.success) {
+        throw new Error(eventAnchor.error || 'Event blockchain anchor failed');
+      }
     }
     
     event.onChainTxHash = eventAnchor.txHash;
@@ -262,6 +268,9 @@ class ProvenanceService {
       };
     } else {
       const anchor = await anchoringService.anchorEvent(event.eventId, event.eventPayloadHash);
+      if (!anchor.success) {
+        throw new Error(anchor.error || 'Event blockchain anchor failed');
+      }
       return { anchor, merkle: null };
     }
   }

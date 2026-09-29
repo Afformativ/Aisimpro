@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 
-const p = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+const p = new ethers.JsonRpcProvider('https://polygon-amoy.drpc.org');
 const cur = await p.getBlockNumber();
 console.log('Current block:', cur);
 

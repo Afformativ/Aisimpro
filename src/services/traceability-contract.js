@@ -164,7 +164,7 @@ const NETWORKS = {
     name: 'Polygon zkEVM Cardona Testnet',
   },
   amoy: {
-    rpcUrl: 'https://rpc-amoy.polygon.technology',
+    rpcUrl: 'https://polygon-amoy.drpc.org',
     chainId: 80002,
     explorerUrl: 'https://amoy.polygonscan.com',
     name: 'Polygon Amoy Testnet',
@@ -208,6 +208,7 @@ class TraceabilityContractService {
     this.isLive = false;
     this.explorerUrl = null;
     this.networkName = null;
+    this.connectionError = null;
     this._eventsCached = false;  // whether we already scanned past events
   }
 
@@ -221,10 +222,12 @@ class TraceabilityContractService {
       || process.env.ZKEVM_RPC_URL
       || process.env.AMOY_RPC_URL
       || process.env.RPC_URL
-      || 'https://rpc.cardona.zkevm-rpc.com';
+      || NETWORKS.amoy.rpcUrl;
 
     // Pick explorer URL from env or detect from RPC
     this.explorerUrl = process.env.TRACEABILITY_EXPLORER || null;
+
+    this.connectionError = null;
 
     if (!contractAddr || !privateKey) {
       console.log('⛏️  Traceability contract: SIMULATION mode (set TRACEABILITY_CONTRACT_ADDRESS + PRIVATE_KEY for live)');
@@ -255,6 +258,11 @@ class TraceabilityContractService {
         this.networkName = `Chain ${chainId}`;
       }
 
+      const contractCode = await this.provider.getCode(contractAddr);
+      if (contractCode === '0x') {
+        throw new Error(`No traceability contract deployed at ${contractAddr} on ${this.networkName}`);
+      }
+
       this.isLive = true;
       console.log(`⛏️  Traceability contract: LIVE at ${contractAddr}`);
       console.log(`   Network : ${this.networkName}`);
@@ -269,7 +277,8 @@ class TraceabilityContractService {
     } catch (err) {
       console.error('⛏️  Traceability contract connection failed:', err.message);
       this.isLive = false;
-      return { simulation: true, error: err.message };
+      this.connectionError = err.message;
+      return { simulation: false, error: err.message };
     }
   }
 
@@ -280,6 +289,7 @@ class TraceabilityContractService {
       contractAddress: this.contract?.target || null,
       wallet: this.wallet?.address || null,
       simulation: !this.isLive,
+      connectionError: this.connectionError,
       network: this.networkName || null,
       explorerUrl: this.explorerUrl || null,
       oreCount: Object.keys(simStore.ores).length,
@@ -296,8 +306,14 @@ class TraceabilityContractService {
 
   // ── Helper: build explorer link ─────────────────────────────────
   _txLink(hash) {
-    if (!hash || !this.explorerUrl) return null;
+    if (!hash || !this.explorerUrl || !/^0x[0-9a-fA-F]{64}$/.test(hash)) return null;
     return `${this.explorerUrl}/tx/${hash}`;
+  }
+
+  _assertWriteAvailable() {
+    if (!this.isLive && this.connectionError) {
+      throw new Error(`Blockchain unavailable; refusing to create a simulated record: ${this.connectionError}`);
+    }
   }
 
   _addrLink(addr) {
@@ -746,6 +762,7 @@ class TraceabilityContractService {
 
   // ── 1. Register Ore ─────────────────────────────────────────────
   async registerOre({ metal, mineId, originCountry, mineralType, weightGrams, estimatedGrade }) {
+    this._assertWriteAvailable();
     const metalEnum = typeof metal === 'string' ? METAL[metal.toUpperCase()] : metal;
     const extractedAt = Math.floor(Date.now() / 1000);
 
@@ -790,6 +807,7 @@ class TraceabilityContractService {
 
   // ── 2. Refine ───────────────────────────────────────────────────
   async refine({ oreIds, metal, refineryId, outputWeightGrams, finenessPPT, barSerialNumber }) {
+    this._assertWriteAvailable();
     const metalEnum = typeof metal === 'string' ? METAL[metal.toUpperCase()] : metal;
     const refinedAt = Math.floor(Date.now() / 1000);
 
@@ -836,6 +854,7 @@ class TraceabilityContractService {
 
   // ── 3. Certify ──────────────────────────────────────────────────
   async certify({ inputBarId, metal, assayerId, weightGrams, finenessPPT, hallmark, sku, productType }) {
+    this._assertWriteAvailable();
     const metalEnum = typeof metal === 'string' ? METAL[metal.toUpperCase()] : metal;
     const certifiedAt = Math.floor(Date.now() / 1000);
 
@@ -1013,6 +1032,7 @@ class TraceabilityContractService {
    * @param {string} manifestCID  optional IPFS CID
    */
   async setDocumentRoot(recordType, recordId, root, manifestCID = '') {
+    this._assertWriteAvailable();
     const methodMap = { ore: 'setOreDocumentRoot', bar: 'setBarDocumentRoot', product: 'setProductDocumentRoot' };
     const method = methodMap[recordType];
     if (!method) throw new Error(`Unknown record type: ${recordType}`);
@@ -1109,6 +1129,7 @@ class TraceabilityContractService {
    * @param {string} to
    */
   async transferCustody(recordType, id, to) {
+    this._assertWriteAvailable();
     const normalizedRecordType = recordTypeKey(recordType);
     if (!normalizedRecordType) throw new Error(`Unknown record type: ${recordType}`);
     const enumValue = RECORD_TYPE_BY_KEY[normalizedRecordType];
@@ -1198,6 +1219,7 @@ class TraceabilityContractService {
    * In simulation mode the DID is stored in the in-memory party record.
    */
   async registerPartyDID(did) {
+    this._assertWriteAvailable();
     if (this.isLive) {
       const overrides = await this._buildSafeTxOverrides('registerPartyDID', [did]);
       const tx = await this.contract.registerPartyDID(did, overrides);
@@ -1222,6 +1244,7 @@ class TraceabilityContractService {
    * Set the on-chain base URI for UNTP entity resolution (ADMIN only).
    */
   async setBaseURI(uri) {
+    this._assertWriteAvailable();
     if (this.isLive) {
       const overrides = await this._buildSafeTxOverrides('setBaseURI', [uri]);
       const tx = await this.contract.setBaseURI(uri, overrides);
@@ -1235,6 +1258,7 @@ class TraceabilityContractService {
    * Record the URI of a UNTP Digital Conformity Credential on a product (ASSAYER/ADMIN).
    */
   async setConformityCredential(productId, uri) {
+    this._assertWriteAvailable();
     if (this.isLive) {
       const overrides = await this._buildSafeTxOverrides('setConformityCredential', [productId, uri]);
       const tx = await this.contract.setConformityCredential(productId, uri, overrides);
