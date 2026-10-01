@@ -4,6 +4,15 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
+interface IOreSelectiveDisclosureVerifier {
+    function verifyProof(
+        uint[2] calldata a,
+        uint[2][2] calldata b,
+        uint[2] calldata c,
+        uint[5] calldata input
+    ) external view returns (bool);
+}
+
 /**
  * @title GoldSilverTraceability
  * @notice On-chain gold & silver mining provenance and chain-of-custody
@@ -136,6 +145,10 @@ contract GoldSilverTraceability is AccessControl {
     // the issuer DID to retrieve the public key used to verify signatures.
     mapping(address => string) public partyDID;
 
+    // ── ZK selective-disclosure commitments for ore origin + grade ──────────
+    mapping(bytes32 => uint256) private _orePrivacyCommitments;
+    address public oreDisclosureVerifier;
+
     // ================================================================
     // Events
     // ================================================================
@@ -222,6 +235,44 @@ contract GoldSilverTraceability is AccessControl {
     /// @notice Emitted when the UNTP base URI is updated
     event BaseURIUpdated(string uri);
 
+    /// @notice Emitted when a private ore record anchors a ZK commitment on-chain
+    event OrePrivacyCommitmentSet(bytes32 indexed oreId, uint256 commitment);
+
+    /// @notice Emitted when the Groth16 verifier contract address is updated
+    event OreDisclosureVerifierUpdated(address indexed verifier);
+
+    /// @notice Emitted when a verifier confirms a private ore predicate against the stored commitment
+    event OreSelectiveDisclosureVerified(
+        bytes32 indexed oreId,
+        uint256 minGrade,
+        uint256 approvedCountryA,
+        uint256 approvedCountryB,
+        uint256 approvedCountryC,
+        address indexed verifier
+    );
+
+    // ── Article-mode Merkle root anchoring ───────────────────────────────
+
+    /// @notice Generic hash anchor event for backwards-compatible indexing
+    event HashAnchored(
+        bytes32 indexed id,
+        bytes32 hash,
+        uint256 timestamp,
+        address indexed sender
+    );
+
+    /// @notice Emitted when a batched Merkle root is anchored on-chain
+    event RootAnchored(
+        bytes32 indexed merkleRoot,
+        bytes32 indexed batchIdHash,
+        string  scopeType,
+        string  scopeId,
+        uint256 timestamp,
+        address indexed sender,
+        bytes32 prevChainedRoot,
+        bytes32 chainedRoot
+    );
+
     // ================================================================
     // Constructor
     // ================================================================
@@ -306,6 +357,64 @@ contract GoldSilverTraceability is AccessControl {
             mineId, originCountry, mineralType,
             extractedAt, weightGrams, estimatedGrade
         );
+    }
+
+    /**
+     * @notice Register a new ore record while keeping origin country and grade off-chain.
+     * @dev    The hidden values are committed as a Groth16/Poseidon commitment.
+     *         Later, the owner proves predicates over those values without revealing them.
+     */
+    function registerOrePrivate(
+        Metal   metal,
+        string  calldata mineId,
+        string  calldata mineralType,
+        uint256 extractedAt,
+        uint256 weightGrams,
+        uint256 privacyCommitment
+    )
+        external
+        onlyRole2(MINER_ROLE, ADMIN_ROLE)
+        returns (bytes32 id)
+    {
+        require(privacyCommitment != 0, "Commitment required");
+
+        id = keccak256(abi.encode(
+            metal,
+            mineId,
+            "PRIVATE",
+            mineralType,
+            extractedAt,
+            weightGrams,
+            "PRIVATE",
+            privacyCommitment,
+            msg.sender
+        ));
+
+        require(!_rawOres[id].exists, "Duplicate ore record");
+
+        _rawOres[id] = RawOre({
+            id:               id,
+            metal:            metal,
+            mineId:           mineId,
+            originCountry:    "PRIVATE",
+            mineralType:      mineralType,
+            extractedAt:      extractedAt,
+            weightGrams:      weightGrams,
+            estimatedGrade:   "PRIVATE",
+            currentCustodian: msg.sender,
+            exists:           true,
+            documentRoot:         bytes32(0),
+            evidenceManifestCID:  ""
+        });
+
+        _orePrivacyCommitments[id] = privacyCommitment;
+
+        emit OreExtracted(
+            id, metal, msg.sender,
+            mineId, "PRIVATE", mineralType,
+            extractedAt, weightGrams, "PRIVATE"
+        );
+        emit OrePrivacyCommitmentSet(id, privacyCommitment);
     }
 
     // ================================================================
@@ -510,6 +619,13 @@ contract GoldSilverTraceability is AccessControl {
         return _certifiedProducts[id];
     }
 
+    function getOrePrivacyCommitment(bytes32 oreId)
+        external view returns (uint256)
+    {
+        require(_rawOres[oreId].exists, "Ore not found");
+        return _orePrivacyCommitments[oreId];
+    }
+
     // ================================================================
     // 6. Verification Methods (recompute hash & compare)
     // ================================================================
@@ -583,8 +699,97 @@ contract GoldSilverTraceability is AccessControl {
         return recomputed == id;
     }
 
+    /**
+     * @notice Verify a Groth16 proof that a hidden ore country is in an approved set
+     *         and the hidden grade meets a minimum threshold, without revealing either.
+     * @dev    Public inputs layout:
+     *         [0] commitment, [1] minGrade, [2] approvedCountryA, [3] approvedCountryB, [4] approvedCountryC
+     */
+    function verifyOreSelectiveDisclosure(
+        bytes32 oreId,
+        uint[2] calldata a,
+        uint[2][2] calldata b,
+        uint[2] calldata c,
+        uint[5] calldata input
+    ) public view returns (bool) {
+        require(_rawOres[oreId].exists, "Ore not found");
+        require(oreDisclosureVerifier != address(0), "Verifier not configured");
+        require(_orePrivacyCommitments[oreId] != 0, "No ore commitment set");
+        require(_orePrivacyCommitments[oreId] == input[0], "Commitment mismatch");
+
+        return IOreSelectiveDisclosureVerifier(oreDisclosureVerifier).verifyProof(a, b, c, input);
+    }
+
+    function attestOreSelectiveDisclosure(
+        bytes32 oreId,
+        uint[2] calldata a,
+        uint[2][2] calldata b,
+        uint[2] calldata c,
+        uint[5] calldata input
+    ) external returns (bool) {
+        bool valid = verifyOreSelectiveDisclosure(oreId, a, b, c, input);
+        require(valid, "Invalid selective disclosure proof");
+
+        emit OreSelectiveDisclosureVerified(
+            oreId,
+            input[1],
+            input[2],
+            input[3],
+            input[4],
+            msg.sender
+        );
+
+        return true;
+    }
+
     // ================================================================
-    // 7. UNTP Identity & Discovery
+    // 7.5 Article-mode Root Anchoring
+    // ================================================================
+
+    /**
+     * @notice Emit a generic hash anchor event.
+     * @dev    Stateless anchoring helper so article-mode benchmarks can reuse
+     *         this contract instead of deploying a separate EventLogger.
+     */
+    function logHash(bytes32 id, bytes32 hash) external {
+        emit HashAnchored(id, hash, block.timestamp, msg.sender);
+    }
+
+    /**
+     * @notice Anchor a Merkle root representing a batch of off-chain events.
+     * @dev    Mirrors EventLogger.anchorRoot so the private article-mode path
+     *         can use this contract as its sole on-chain dependency.
+     */
+    function anchorRoot(
+        bytes32 merkleRoot,
+        bytes32 batchIdHash,
+        string  calldata scopeType,
+        string  calldata scopeId,
+        string  calldata schemaVersion,
+        string  calldata treeAlgo,
+        bytes32 prevChainedRoot,
+        bytes32 chainedRoot
+    ) external {
+        emit RootAnchored(
+            merkleRoot,
+            batchIdHash,
+            scopeType,
+            scopeId,
+            block.timestamp,
+            msg.sender,
+            prevChainedRoot,
+            chainedRoot
+        );
+
+        // Keep unused-parameter intent explicit; they are part of the ABI and event payload semantics.
+        schemaVersion;
+        treeAlgo;
+
+        emit HashAnchored(batchIdHash, merkleRoot, block.timestamp, msg.sender);
+    }
+
+    // ================================================================
+    // 8. UNTP Identity & Discovery
     // ================================================================
 
     /**
@@ -627,8 +832,17 @@ contract GoldSilverTraceability is AccessControl {
         emit ConformityCredentialSet(productId, uri);
     }
 
+    function setOreDisclosureVerifier(address verifier)
+        external
+        onlyRole(ADMIN_ROLE)
+    {
+        require(verifier != address(0), "Verifier required");
+        oreDisclosureVerifier = verifier;
+        emit OreDisclosureVerifierUpdated(verifier);
+    }
+
     // ================================================================
-    // 8. IPFS Certificate Template CIDs  (ADMIN only)
+    // 9. IPFS Certificate Template CIDs  (ADMIN only)
     // ================================================================
 
     /**
@@ -652,7 +866,7 @@ contract GoldSilverTraceability is AccessControl {
     }
 
     // ================================================================
-    // 8. Document Root Setters  (attach Merkle root of evidence docs)
+    // 10. Document Root Setters  (attach Merkle root of evidence docs)
     // ================================================================
 
     /**
