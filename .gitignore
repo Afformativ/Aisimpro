@@ -40,4 +40,6 @@ data/
 
 # Compiled contracts
 artifacts/
+# ZK circuit outputs are read at runtime by the API
+!zk/artifacts/
 cache/
