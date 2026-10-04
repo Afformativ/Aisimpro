@@ -14,6 +14,7 @@ services:
         - src/**
         - contracts/**
         - scripts/**
+        - zk/**
         - package.json
         - package-lock.json
         - render.yaml
