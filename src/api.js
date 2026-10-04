@@ -14,6 +14,7 @@ import anchoringService from './services/anchoring.js';
 import articleTraceabilityService from './services/article-traceability.js';
 import traceabilityContract from './services/traceability-contract.js';
 import zkOreProofService, { encodeCommitment } from './services/zk-ore-proof.js';
+import { loadDemoClaims } from './services/zk-demo-claims.js';
 import { PartyType, FacilityType, DocumentType } from './models/index.js';
 import untpRoutes from './routes/untp.js';
 import { buildDIDDocument } from './services/untp-credentials.js';
@@ -255,6 +256,15 @@ app.post('/api/zk/verifier', requireAnyRole('SUPERADMIN', 'ADMIN'), async (req, 
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// Prepared proof bundles for the ZK Claims page (public data only)
+app.get('/api/zk/demo-claims', (req, res) => {
+  try {
+    res.json({ claims: loadDemoClaims() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

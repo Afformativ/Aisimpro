@@ -15,6 +15,8 @@ import type {
   OnChainBar,
   OnChainProduct,
   OnChainEvent,
+  ZkDemoClaim,
+  ZkVerifyResult,
 } from '../types';
 
 // API URL: use environment variable or default to localhost for development
@@ -280,3 +282,12 @@ export const verifyDocumentProof = (recordType: string, recordId: string, data: 
   `/traceability/${recordType}/${recordId}/verify-document`,
   { method: 'POST', body: JSON.stringify(data) },
 );
+
+// ZK Claims (read-only checks: never proves, never sends a transaction)
+export const getZkDemoClaims = () => fetchAPI<{ claims: ZkDemoClaim[] }>('/zk/demo-claims');
+
+export const verifyZkClaim = (oreId: string, proof: Record<string, unknown>, publicSignals: string[]) =>
+  fetchAPI<ZkVerifyResult>(`/zk/ore/${oreId}/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ proof, publicSignals, attestOnChain: false }),
+  });

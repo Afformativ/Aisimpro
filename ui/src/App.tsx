@@ -19,6 +19,7 @@ import ChangePassword from './pages/ChangePassword';
 import Profile from './pages/Profile';
 import UserManagement from './pages/UserManagement';
 import UntpCredential from './pages/UntpCredential';
+import ZkClaims from './pages/ZkClaims';
 import { DEFAULT_AUTHENTICATED_ROUTE } from './config/navigation';
 import './App.css';
 
@@ -70,6 +71,7 @@ function App() {
                       <Route path="/audit" element={<Audit />} />
                       <Route path="/network" element={<Network />} />
                       <Route path="/traceability" element={<OnChainTraceability />} />
+                      <Route path="/zk-claims" element={<ZkClaims />} />
                       <Route path="/profile" element={<Profile />} />
                       <Route path="/users" element={<UserManagement />} />
                     </Routes>

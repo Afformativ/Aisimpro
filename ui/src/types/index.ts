@@ -288,3 +288,19 @@ export interface OnChainEvent {
   txHash?: string | null;
   explorerUrl?: string | null;
 }
+
+// Prepared ZK proof bundle for the ZK Claims page (public data only)
+export interface ZkDemoClaim {
+  id: string;
+  label: string;
+  oreId: string;
+  proof: Record<string, unknown> | null;
+  publicSignals: string[] | null;
+  attestation: { txHash: string; explorerUrl: string | null } | null;
+}
+
+export interface ZkVerifyResult {
+  oreId: string;
+  localVerified: boolean;
+  contractVerified: boolean;
+}

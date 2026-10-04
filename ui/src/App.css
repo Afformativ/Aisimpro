@@ -2835,3 +2835,22 @@ body {
   .vc-field-label { min-width: unset; }
   .vc-footer { flex-direction: column; align-items: flex-start; }
 }
+
+/* ZK Claims */
+.zk-panel { max-width: 720px; }
+.zk-hint { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; }
+.zk-claim { margin: 18px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-dark); }
+.zk-claim-label { display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+.zk-claim ul, .zk-result ul { margin: 0; padding-left: 18px; }
+.zk-result-area { margin-top: 18px; }
+.zk-result { border-radius: var(--radius-sm); padding: 14px 16px; font-size: 0.9rem; }
+.zk-result h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 1rem; }
+.zk-result p { margin: 0; }
+.zk-ok { background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.45); color: #6ee7b7; }
+.zk-warn { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); color: #fcd34d; }
+.zk-err { background: rgba(239, 68, 68, 0.10); border: 1px solid rgba(239, 68, 68, 0.40); color: #fca5a5; }
+.zk-record { margin-top: 10px; font-size: 0.85rem; color: var(--text-muted); }
+.zk-record a { color: var(--primary); text-decoration: none; }
+.zk-loading { display: flex; align-items: center; gap: 10px; color: var(--text-muted); padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.zk-spin { animation: zk-spin 0.9s linear infinite; flex: none; }
+@keyframes zk-spin { to { transform: rotate(360deg); } }

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   UserCog,
   Pickaxe,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { HIDDEN_NAV_PATHS_IN_PROD } from '../config/navigation';
@@ -24,6 +25,7 @@ const navItems = [
   { path: '/facilities', label: 'Facilities', icon: Building2 },
   { path: '/batches', label: 'Batches', icon: Package },
   { path: '/traceability', label: 'On-Chain', icon: Pickaxe },
+  { path: '/zk-claims', label: 'ZK Claims', icon: ShieldCheck },
   { path: '/documents', label: 'Documents', icon: FileText },
   { path: '/verify', label: 'Verify', icon: Shield },
   { path: '/audit', label: 'Audit Log', icon: ClipboardList },
