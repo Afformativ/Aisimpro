@@ -118,6 +118,17 @@ app.use('/api/admin', adminRoutes);
 app.use('/', untpRoutes);
 app.use('/api', untpRoutes);
 
+// Public ZK evidence for a credential page: only attested demo claims, public data only
+app.get('/api/zk/evidence/:oreId', (req, res) => {
+  try {
+    const claim = loadDemoClaims().find((c) => c.oreId === req.params.oreId && c.attestation);
+    if (!claim) return res.status(404).json({ error: 'No ZK evidence for this ore' });
+    res.json({ oreId: claim.oreId, publicSignals: claim.publicSignals, attestation: claim.attestation });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============ PROTECTED API ROUTES ============
 // All routes below require valid JWT (unless AUTH_ENABLED=false)
 app.use('/api', requireAuth, enforcePasswordChange);

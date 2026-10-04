@@ -2811,6 +2811,30 @@ body {
   text-decoration: none;
 }
 
+/* External ZK evidence shown beside the credential (not part of the signed VC) */
+.vc-zk-evidence {
+  margin: 0 28px 20px;
+  padding: 14px 16px;
+  border: 1px dashed rgba(212, 175, 55, 0.55);
+  border-radius: 10px;
+  background: rgba(212, 175, 55, 0.06);
+  font-size: 0.875rem;
+}
+.vc-zk-evidence p { margin: 0 0 8px; }
+.vc-zk-evidence a { color: #d4af37; display: inline-flex; align-items: center; gap: 4px; text-decoration: none; }
+.vc-zk-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d4af37;
+}
+.vc-zk-evidence .vc-zk-note { margin: 10px 0 0; font-size: 0.75rem; color: #8a8aa0; }
+
 .vc-loading, .vc-error {
   display: flex;
   flex-direction: column;

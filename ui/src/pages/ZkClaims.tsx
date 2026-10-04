@@ -3,29 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { CheckCircle, AlertTriangle, XCircle, Loader2, ExternalLink } from 'lucide-react';
 import * as api from '../services/api';
 import type { ZkDemoClaim } from '../types';
-
-// The fixed demo claim, as public signals 1..4 of the ore circuit:
-// minGrade 500 (5.00 g/t) and the approved countries CA, AU, US.
-const EXPECTED_PUBLIC_SIGNALS = ['500', '17217', '16725', '21843'];
+import { matchesDemoClaim, shortHash } from '../utils/zkClaim';
 
 type Result =
   | { kind: 'verified'; attestation: ZkDemoClaim['attestation'] }
   | { kind: 'no-proof' }
   | { kind: 'failed' }
   | { kind: 'error' };
-
-function matchesClaim(publicSignals: string[]) {
-  if (publicSignals.length !== EXPECTED_PUBLIC_SIGNALS.length + 1) return false;
-  try {
-    return EXPECTED_PUBLIC_SIGNALS.every((value, i) => BigInt(publicSignals[i + 1]) === BigInt(value));
-  } catch {
-    return false;
-  }
-}
-
-function shortHash(hash: string) {
-  return hash.length > 12 ? `${hash.slice(0, 6)}…${hash.slice(-4)}` : hash;
-}
 
 export default function ZkClaims() {
   const { data, isLoading, error } = useQuery({
@@ -51,7 +35,7 @@ export default function ZkClaims() {
       setResult({ kind: 'no-proof' });
       return;
     }
-    if (!matchesClaim(claim.publicSignals)) {
+    if (!matchesDemoClaim(claim.publicSignals)) {
       setResult({ kind: 'failed' });
       return;
     }

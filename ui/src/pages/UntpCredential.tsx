@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Award,
@@ -20,6 +20,13 @@ import {
   getUntpApiPath,
   resolveUntpRouteTarget,
 } from '../utils/untpCredentials';
+import { matchesDemoClaim, shortHash } from '../utils/zkClaim';
+
+interface ZkEvidence {
+  oreId: string;
+  publicSignals: string[] | null;
+  attestation: { txHash: string; explorerUrl: string | null };
+}
 
 const API_BASE = import.meta.env.VITE_API_URL || `${window.location.protocol}//${window.location.hostname}:3000/api`;
 const SERVER_BASE = API_BASE.replace(/\/api\/?$/, '');
@@ -47,10 +54,34 @@ function StatIcon({ label }: { label: string }) {
 
 export default function UntpCredential() {
   const params = useParams<{ id: string; credentialKind?: string; entityType?: string; eventId?: string }>();
-  const target = resolveUntpRouteTarget(params);
+  // Keep the same target object across renders; a fresh one each render re-ran the fetch effect in a loop.
+  const { id, credentialKind, entityType, eventId } = params;
+  const target = useMemo(
+    () => resolveUntpRouteTarget({ id, credentialKind, entityType, eventId }),
+    [id, credentialKind, entityType, eventId],
+  );
   const [vc, setVc] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [zkEvidence, setZkEvidence] = useState<ZkEvidence | null>(null);
+
+  // External ZK evidence for an ore: shown next to the credential, not part of the signed VC.
+  const oreId = target?.entityType === 'ore' ? target.id : null;
+  useEffect(() => {
+    if (!oreId) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/zk/evidence/${oreId}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: ZkEvidence | null) => {
+        if (!cancelled && data?.attestation && data.publicSignals && matchesDemoClaim(data.publicSignals)) {
+          setZkEvidence(data);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [oreId]);
 
   useEffect(() => {
     if (!target) {
@@ -205,6 +236,26 @@ export default function UntpCredential() {
             </div>
           ))}
         </div>
+
+        {zkEvidence && zkEvidence.oreId === oreId && (
+          <div className="vc-zk-evidence">
+            <div className="vc-zk-label"><ShieldCheck size={15} /> ZK evidence (demo)</div>
+            <p>
+              ZK proof attested on the Polygon Amoy testnet. The values recorded at registration meet two
+              conditions: country of origin in Canada, Australia, or the United States, and grade of at least 5.00 g/t.
+            </p>
+            {zkEvidence.attestation.explorerUrl ? (
+              <a href={zkEvidence.attestation.explorerUrl} target="_blank" rel="noopener noreferrer">
+                View attestation <ExternalLink size={11} />
+              </a>
+            ) : (
+              <span className="vc-field-mono">{shortHash(zkEvidence.attestation.txHash)}</span>
+            )}
+            <p className="vc-zk-note">
+              Demo on a testnet. Not a responsible-sourcing certification. The proof does not include the exact country or grade.
+            </p>
+          </div>
+        )}
 
         <div className="vc-footer">
           <span>{description.footer}</span>
