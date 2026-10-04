@@ -95,8 +95,13 @@ class BlockchainAnchoringService {
       this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl, undefined, { batchMaxCount: 1 });
       
       if (privateKey) {
-        this.wallet = new ethers.Wallet(privateKey, this.provider);
-        
+        try {
+          this.wallet = new ethers.Wallet(privateKey.trim(), this.provider);
+        } catch {
+          // ethers repeats a rejected key in its message, and this error reaches API responses.
+          throw new Error('PRIVATE_KEY is not a valid private key');
+        }
+
         // Get contract address from env if not set
         const contractAddress = this.config.contractAddress || process.env.CONTRACT_ADDRESS;
         

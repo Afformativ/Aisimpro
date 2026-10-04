@@ -261,7 +261,12 @@ class TraceabilityContractService {
       // dRPC's free Amoy endpoint rejects JSON-RPC batches larger than three.
       // Disable ethers' automatic batching so transaction preflight stays compatible.
       this.provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { batchMaxCount: 1 });
-      this.wallet = new ethers.Wallet(privateKey, this.provider);
+      try {
+        this.wallet = new ethers.Wallet(privateKey.trim(), this.provider);
+      } catch {
+        // ethers repeats a rejected key in its message, and this error reaches /api/health.
+        throw new Error('PRIVATE_KEY is not a valid private key');
+      }
       this.contract = new ethers.Contract(contractAddr, CONTRACT_ABI, this.wallet);
 
       // Gas price configuration
