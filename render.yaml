@@ -85,6 +85,8 @@ services:
         value: Gold Provenance System
       - key: UNTP_RENDER_BASE_URI
         sync: false
+      - key: UNTP_SIGNING_PRIVATE_JWK
+        sync: false
       - key: UNTP_STATUS_LIST_BITS
         value: "131072"
     disk:

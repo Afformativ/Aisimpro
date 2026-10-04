@@ -129,7 +129,7 @@ Important production requirements:
 UNTP production notes:
 
 - Credentials are issued as JOSE-enveloped `vc+jwt` VCs.
-- The app generates and persists an Ed25519 signing key in `DATA_DIR/untp-signing-key.jwk` unless you provide `UNTP_SIGNING_PRIVATE_JWK` or `UNTP_SIGNING_PRIVATE_PEM`.
+- The app generates and persists an Ed25519 signing key in `DATA_DIR/untp-signing-key.jwk` unless you provide `UNTP_SIGNING_PRIVATE_JWK` or `UNTP_SIGNING_PRIVATE_PEM`. On a host without a persistent disk (for example Render's free tier), set `UNTP_SIGNING_PRIVATE_JWK`: otherwise a new key is generated after each restart and credentials issued earlier no longer verify.
 - Credential revocation uses a W3C Bitstring Status List exposed under `/api/credentials/status/bitstring-status-list/revocation`.
 
 Minimal Render setup:
