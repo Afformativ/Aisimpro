@@ -9,6 +9,7 @@
  * Live mode needs TRACEABILITY_CONTRACT_ADDRESS and PRIVATE_KEY (an account with
  * MINER or ADMIN role) and a configured ore disclosure verifier. Without them the
  * contract service runs in simulation mode, which is enough for local UI work.
+ * If they are set but the contract cannot be reached, the script stops and writes nothing.
  * Salts are random and are never written to disk.
  */
 
@@ -33,8 +34,14 @@ const BATCHES = [
 // 31 random bytes always stay below the BN254 field modulus.
 const randomSalt = () => BigInt(`0x${randomBytes(31).toString('hex')}`);
 
-const status = await traceabilityContract.connect();
+// The seed only sends transactions, so skip the background scan of past events.
+const status = await traceabilityContract.connect({ scanEvents: false });
 const live = status && status.simulation === false && !status.error;
+if (!live && process.env.TRACEABILITY_CONTRACT_ADDRESS && process.env.PRIVATE_KEY) {
+  // A live run that cannot connect must not fall back to simulated batches.
+  console.error(`Could not connect to the traceability contract (${status?.error || 'unknown error'}). Nothing was written.`);
+  process.exit(1);
+}
 console.log(`Traceability contract: ${live ? `live at ${status.address}` : 'SIMULATION'}`);
 
 const claims = [];

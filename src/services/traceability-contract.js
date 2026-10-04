@@ -235,7 +235,8 @@ class TraceabilityContractService {
   }
 
   // ── Connect ─────────────────────────────────────────────────────
-  async connect() {
+  // Scripts that only send transactions can pass { scanEvents: false }.
+  async connect({ scanEvents = true } = {}) {
     const contractAddr = process.env.TRACEABILITY_CONTRACT_ADDRESS;
     const privateKey = process.env.PRIVATE_KEY;
 
@@ -300,7 +301,9 @@ class TraceabilityContractService {
       console.log(`   Gas     : ${this._priorityFeeGwei} gwei priority (cap ${this._maxGasPriceGwei} gwei / ${this._maxTxCostPOL} POL per tx)`);
 
       // Pre-load historical events into cache (async, non-blocking)
-      this._loadPastEvents().catch(e => console.warn('⛏️  Event scan warning:', e.message));
+      if (scanEvents) {
+        this._loadPastEvents().catch(e => console.warn('⛏️  Event scan warning:', e.message));
+      }
 
       return { simulation: false, address: contractAddr, wallet: this.wallet.address, network: this.networkName };
     } catch (err) {
