@@ -2,18 +2,19 @@
 # Gold Provenance & Chain‑of‑Custody Prototype
 
 
-A small prototype for tracking mined gold through custody events and providing tamper‑evident proof via cryptographic hashing and on‑chain anchors.
+A research prototype for tracking mined gold through custody events. It keeps tamper‑evident records through cryptographic hashing and on‑chain anchors, and lets a verifier check selected claims about a batch with zero‑knowledge proofs without seeing the underlying values.
 
 ## Live Demo
 
-- **Frontend:** https://afformativ.github.io/Aisimpro 
+- **Frontend:** https://afformativ.github.io/Aisimpro (sign‑in required)
 
 ## What this application does
 
 - Records batches (lots) of material created at origin.
 - Stores events that describe custody, shipment, receipt, inspection, assay, and disputes.
 - Computes cryptographic hashes for batches, events and documents to provide an immutable fingerprint.
-- Anchors selected hashes to an EVM chain (Polygon networks) as a public, tamper‑evident timestamp.
+- Anchors selected hashes to the Polygon Amoy testnet as a public, tamper‑evident timestamp.
+- Lets the data owner keep origin country and ore grade confidential, and prove with a zero‑knowledge proof that they meet a stated condition.
 - Provides a UI for creating, browsing and verifying provenance, plus an API and CLI for automation.
 
 ## UI Pages (what you'll find in the frontend)
@@ -27,8 +28,25 @@ A small prototype for tracking mined gold through custody events and providing t
 - **Audit** — Tools and views for auditors to verify timelines and hashes.
 - **Network** — Configure which blockchain network to use for anchoring and view anchor status.
 - **Verify** — Paste or upload a batch/package and run integrity checks against stored and on‑chain anchors.
+- **ZK Claims** — Pick a prepared demo batch and check its origin and grade claim with a zero‑knowledge proof. Shows pass or fail and the existing on‑chain attestation, without showing the hidden values.
+- **UNTP Credential** — View a batch's UNTP‑style verifiable credential and its QR code. For a demo batch with an attested proof, the page also shows the ZK evidence next to the credential.
 
 These pages are implemented under ui/src/pages/ in the repository.
+
+## Selective disclosure with zero‑knowledge proofs
+
+For ore records, the prototype can keep two attributes confidential while still letting a verifier check claims about them.
+
+- **Hidden:** origin country and ore grade. Only a Poseidon commitment to these values is stored on chain.
+- **Proven:** the hidden country is one of three approved countries, and the hidden grade is at least a public minimum threshold. Both conditions are proved together in a single Groth16 proof.
+- **Public inputs:** the commitment, the minimum grade, and the three approved countries.
+- **Verification:** the API checks the proof locally and against the on‑chain verifier contract, and can record an attestation transaction on chain.
+
+A proof can only be produced when both conditions hold, so a batch that does not meet them is shown as not verified.
+
+Proof generation needs the compiled circuit files in `zk/artifacts/`. Build them with `npm run zk:build`, which requires the circom compiler. Design details, files, and the API flow are in [ZK-SELECTIVE-DISCLOSURE.md](ZK-SELECTIVE-DISCLOSURE.md).
+
+The two demo batches used by the ZK Claims page are created with `node scripts/seed-zk-demo.mjs`, which writes their public proof bundles to `zk/demo/demo-claims.json` and never stores the secret values. On a live network it needs `TRACEABILITY_CONTRACT_ADDRESS`, a `PRIVATE_KEY` with the MINER or ADMIN role, and a configured verifier contract.
 
 ## Important concepts (glossary)
 
@@ -153,3 +171,5 @@ CLI: helpful scripts for demo, batch creation and verification are available via
 - Documents and full payloads are kept off‑chain; only hashes are anchored on‑chain.
 - This prototype assumes batches are treated as atomic units (no split/merge flows).
 - Anchoring produces a public transaction (testnet/mainnet costs apply).
+- Zero‑knowledge selective disclosure currently covers origin country and ore grade only. Mine ID, mineral type, weight, and current custodian are still stored in the clear.
+- Contracts run on the Polygon Amoy testnet, not on mainnet.
