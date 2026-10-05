@@ -574,25 +574,33 @@ class TraceabilityContractService {
       let newOre = 0, newBar = 0, newProd = 0;
 
       // Query a filter with automatic chunk-halving on block-range errors.
+      // Other errors are retried a few times first: dRPC's free endpoint returns
+      // intermittent 500s, and a skipped chunk loses its events for good.
       const queryWithRetry = async (filter, start, end, label) => {
         let chunkSize = end - start + 1;
         let results = [];
         let cursor = start;
+        let failures = 0;
         while (cursor <= end) {
           const chunkEnd = Math.min(cursor + chunkSize - 1, end);
           try {
             const logs = await this.contract.queryFilter(filter, cursor, chunkEnd);
             results = results.concat(logs);
             cursor = chunkEnd + 1;
+            failures = 0;
           } catch (e) {
             const isRangeError = e.code === -32000
               || (e.message && (e.message.includes('block range') || e.message.includes('coalesce')));
             if (isRangeError && chunkSize > 1) {
               chunkSize = Math.max(1, Math.floor(chunkSize / 2));
               console.warn(`⛏️  ${label} chunk ${cursor}-${chunkEnd}: range too large, retrying with ${chunkSize}-block chunks`);
+            } else if (failures < 3) {
+              failures += 1;
+              await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** (failures - 1)));
             } else {
               console.warn(`⛏️  ${label} chunk ${cursor}-${chunkEnd}:`, e.message.slice(0, 80));
               cursor = chunkEnd + 1; // skip unrecoverable chunk
+              failures = 0;
             }
           }
         }
