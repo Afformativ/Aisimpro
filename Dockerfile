@@ -11,6 +11,9 @@ RUN npm ci --only=production
 # Copy source code
 COPY src/ ./src/
 COPY contracts/ ./contracts/
+# Compiled circuits and the demo claims are read at runtime (zk/ptau is build-only)
+COPY zk/artifacts/ ./zk/artifacts/
+COPY zk/demo/ ./zk/demo/
 
 # Create data directory for persistence
 RUN mkdir -p /app/data

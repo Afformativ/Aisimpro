@@ -15,6 +15,7 @@ services:
         - contracts/**
         - scripts/**
         - zk/**
+        - Dockerfile
         - package.json
         - package-lock.json
         - render.yaml
