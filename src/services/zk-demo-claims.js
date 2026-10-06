@@ -26,10 +26,27 @@ function toPublicClaim(claim) {
   };
 }
 
+function demoClaimsFile() {
+  return process.env.ZK_DEMO_CLAIMS_FILE || DEFAULT_FILE;
+}
+
 export function loadDemoClaims() {
-  const file = process.env.ZK_DEMO_CLAIMS_FILE || DEFAULT_FILE;
+  const file = demoClaimsFile();
   if (!existsSync(file)) return [];
   const raw = JSON.parse(readFileSync(file, 'utf8'));
   const claims = Array.isArray(raw) ? raw : raw.claims || [];
   return claims.map(toPublicClaim);
+}
+
+// One line for the startup log, so a missing or misplaced file shows up in the host's logs.
+export function describeDemoClaims() {
+  const file = demoClaimsFile();
+  try {
+    if (!existsSync(file)) return `ZK demo claims: no file at ${file}`;
+    const claims = loadDemoClaims();
+    const attested = claims.filter((claim) => claim.attestation).length;
+    return `ZK demo claims: ${claims.length} loaded, ${attested} attested, from ${file}`;
+  } catch (error) {
+    return `ZK demo claims: cannot read ${file} (${error.message})`;
+  }
 }

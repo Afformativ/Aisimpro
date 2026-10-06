@@ -14,7 +14,7 @@ import anchoringService from './services/anchoring.js';
 import articleTraceabilityService from './services/article-traceability.js';
 import traceabilityContract from './services/traceability-contract.js';
 import zkOreProofService, { encodeCommitment } from './services/zk-ore-proof.js';
-import { loadDemoClaims } from './services/zk-demo-claims.js';
+import { describeDemoClaims, loadDemoClaims } from './services/zk-demo-claims.js';
 import { PartyType, FacilityType, DocumentType } from './models/index.js';
 import untpRoutes from './routes/untp.js';
 import { buildDIDDocument } from './services/untp-credentials.js';
@@ -1125,6 +1125,7 @@ export async function startServer() {
     console.log(`Mode: ${anchoringService.isSimulated() ? 'SIMULATION' : 'LIVE BLOCKCHAIN'}`);
     console.log(`Database: ${process.env.DB_TYPE || 'file'}`);
     console.log(`Auth: ${process.env.AUTH_ENABLED !== 'false' ? 'ENABLED' : 'DISABLED'}`);
+    console.log(describeDemoClaims());
   });
 }
 
