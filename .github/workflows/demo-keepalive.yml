@@ -1,0 +1,66 @@
+name: Demo keep-alive and health check
+
+# Render's free plan spins the API down after 15 minutes without requests.
+# During the demo window (Oct 9 to Oct 20, 7:00 to 22:00 Toronto time) this pings
+# the API every 10 minutes and checks what reviewers see. A failed run sends the
+# usual GitHub failure notification. Delete this file after the demo.
+on:
+  schedule:
+    - cron: '*/10 11-23,0-1 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      API: https://gold-provenance-aisimpro.onrender.com
+      SITE: https://afformativ.github.io/Aisimpro/
+      DEMO_ORE: '0xe7fc800455a4be1e129bdfc20396bfe9458c22ab052d2cc4561d426e0eceb1bd'
+      WALLET: '0x3ef410c459e8525BfBdC557Ca36d2Bf264393649'
+      RPC: https://polygon-amoy.drpc.org
+      MIN_POL: '0.05'
+    steps:
+      - name: Check the demo
+        run: |
+          today=$(TZ=America/Toronto date +%Y%m%d)
+          if [ "$today" -lt 20261009 ] || [ "$today" -gt 20261020 ]; then
+            echo "Outside the demo window, skipping."
+            exit 0
+          fi
+
+          failed=0
+          # Retry each check, since the free RPC and a waking instance fail now and then.
+          check() {
+            local name=$1; shift
+            for attempt in 1 2 3; do
+              if "$@"; then echo "OK    $name"; return 0; fi
+              sleep 15
+            done
+            echo "FAIL  $name"; failed=1
+          }
+
+          health() {
+            local out
+            out=$(curl -s --max-time 120 -w ' %{http_code} %{time_total}' "$API/api/health") || return 1
+            echo "      health: $out"
+            echo "$out" | grep -q '"status":"ok"' && echo "$out" | grep -q ' 200 '
+          }
+          evidence() { curl -s --max-time 60 "$API/api/zk/evidence/$DEMO_ORE" | grep -q '"attestation"'; }
+          credential() { [ "$(curl -s --max-time 60 -o /dev/null -w '%{http_code}' "$API/api/credentials/dte/ore/$DEMO_ORE")" = 200 ]; }
+          site() { [ "$(curl -s --max-time 60 -o /dev/null -w '%{http_code}' "$SITE")" = 200 ]; }
+          wallet() {
+            local hex pol
+            hex=$(curl -s --max-time 30 -H 'Content-Type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getBalance\",\"params\":[\"$WALLET\",\"latest\"]}" "$RPC" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"])') || return 1
+            pol=$(python3 -c "print(int('$hex', 16) / 1e18)")
+            echo "      wallet: $pol POL"
+            python3 -c "import sys; sys.exit(0 if $pol >= $MIN_POL else 1)"
+          }
+
+          check "API is up" health
+          check "ZK evidence for demo batch A" evidence
+          check "Credential for demo batch A" credential
+          check "Website is up" site
+          check "Backend wallet has at least $MIN_POL POL" wallet
+          exit $failed
