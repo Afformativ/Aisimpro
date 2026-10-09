@@ -25,6 +25,14 @@ import { useAuth } from '../contexts/AuthContext';
 import type { OnChainOre, OnChainBar, OnChainProduct, TraceabilityStatus, GasStatus } from '../types';
 import UntpCredentialModal from '../components/UntpCredentialModal';
 import type { UntpCredentialTarget } from '../utils/untpCredentials';
+import { shortHash } from '../utils/zkClaim';
+
+const EVENT_LABELS: Record<string, string> = {
+  OreExtracted: 'Ore registered',
+  BarRefined: 'Refined into bar',
+  ProductCertified: 'Assayed and certified',
+  CustodyTransferred: 'Custody transferred',
+};
 
 const METAL_COLORS: Record<string, string> = {
   GOLD: '#d4af37',
@@ -120,6 +128,25 @@ export default function OnChainTraceability() {
       : String(event.data?.timestamp || event.timestamp);
     latestCustodyEventByRecord.set(`${recordType}:${recordId}`, eventId);
   });
+
+  // ── Event history (oldest first) ─────────────────────────────────
+  const recordName = (recordType: unknown, id: string) => {
+    if (recordType === 'ore' || recordType === 0) return ores.find((o) => o.id === id)?.mineId;
+    if (recordType === 'bar' || recordType === 1) return bars.find((b) => b.id === id)?.barSerialNumber;
+    return products.find((p) => p.id === id)?.sku;
+  };
+  const historyRecordLabel = (event: (typeof events)[number]) => {
+    const data = event.data || {};
+    if (event.type === 'OreExtracted') return String(data.mineId ?? shortHash(event.id));
+    if (event.type === 'BarRefined') return String(data.barSerialNumber ?? shortHash(event.id));
+    if (event.type === 'ProductCertified') return String(data.sku ?? data.hallmark ?? shortHash(event.id));
+    if (event.type === 'CustodyTransferred') {
+      const name = recordName(data.recordType, String(data.id ?? event.id)) ?? shortHash(event.id);
+      return typeof data.to === 'string' ? `${name} to ${shortHash(data.to)}` : name;
+    }
+    return shortHash(event.id);
+  };
+  const history = [...events].sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
 
   // ── Mutations ────────────────────────────────────────────────────
   const invalidateAll = () => {
@@ -853,6 +880,35 @@ export default function OnChainTraceability() {
             <Award size={32} />
             <p>No certified products yet. Certify bars for market delivery.</p>
           </div>
+        )}
+      </div>
+
+      {/* ── On-chain event history ─────────────────────────────── */}
+      <div className="card">
+        <h3>On-Chain Event History</h3>
+        <p className="subtitle">Registrations, refining, certifications and custody transfers, oldest first.</p>
+        {history.length === 0 ? (
+          <p className="subtitle">No on-chain events yet.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr><th>Time</th><th>Event</th><th>Record</th><th>Transaction</th></tr>
+            </thead>
+            <tbody>
+              {history.map((event, index) => (
+                <tr key={`${event.type}-${event.id}-${event.txHash || index}`}>
+                  <td>{new Date(Number(event.timestamp) * 1000).toLocaleString()}</td>
+                  <td>{EVENT_LABELS[event.type] || event.type}</td>
+                  <td>{historyRecordLabel(event)}</td>
+                  <td>
+                    {event.explorerUrl
+                      ? <a href={event.explorerUrl} target="_blank" rel="noopener noreferrer">{shortHash(event.txHash || '')}</a>
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
